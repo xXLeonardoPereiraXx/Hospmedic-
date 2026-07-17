@@ -1,0 +1,193 @@
+/* HBI — HospMedic Bid Intelligence
+   Direção visual: "instrumento de triagem". Azul-petróleo institucional,
+   verde-clínico (GO) e âmbar (atenção) como semáforo de decisão. Números
+   tabulares para alinhar valores. Sem cream/serif/terracota genéricos. */
+
+:root {
+  --tinta:        #0b2a33;   /* azul-petróleo profundo (texto/estrutura) */
+  --tinta-suave:  #3a5a63;
+  --papel:        #f2f5f4;   /* fundo levemente frio */
+  --papel-branco: #ffffff;
+  --linha:        #d3ddda;
+  --go:           #1a8f5c;   /* verde-clínico */
+  --go-fundo:     #e3f4ec;
+  --atencao:      #b8791a;   /* âmbar */
+  --atencao-fundo:#fbf0dc;
+  --nogo:         #c23b3b;   /* vermelho contido */
+  --nogo-fundo:   #fbe7e7;
+  --acento:       #17707d;   /* teal do sistema (botões/links) */
+  --acento-escuro:#0f5560;
+  --sombra: 0 1px 3px rgba(11, 42, 51, .08), 0 8px 24px rgba(11, 42, 51, .06);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  background: var(--papel);
+  color: var(--tinta);
+  line-height: 1.55;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- Barra superior ---- */
+.topo {
+  background: var(--tinta);
+  color: #eaf2f1;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.topo .marca {
+  display: flex; align-items: baseline; gap: 10px;
+  font-weight: 700; letter-spacing: .01em; font-size: 18px;
+}
+.topo .marca .sigla {
+  background: var(--acento);
+  color: #fff; padding: 3px 8px; border-radius: 5px;
+  font-size: 15px; letter-spacing: .06em;
+}
+.topo .marca .full { color: #9fc0c3; font-weight: 500; font-size: 13px; }
+.topo .sessao { display: flex; align-items: center; gap: 16px; font-size: 13px; }
+.topo .sessao a { color: #9fc0c3; text-decoration: none; }
+.topo .sessao a:hover { color: #fff; text-decoration: underline; }
+
+/* ---- Container ---- */
+.wrap { max-width: 880px; margin: 0 auto; padding: 32px 24px 64px; }
+
+/* ---- Cartões ---- */
+.cartao {
+  background: var(--papel-branco);
+  border: 1px solid var(--linha);
+  border-radius: 10px;
+  box-shadow: var(--sombra);
+  padding: 28px;
+  margin-bottom: 24px;
+}
+.cartao h2 {
+  font-size: 17px; font-weight: 700; margin-bottom: 4px;
+}
+.cartao .sub { color: var(--tinta-suave); font-size: 13.5px; margin-bottom: 20px; }
+
+/* ---- Formulário de upload ---- */
+.campo { margin-bottom: 20px; }
+.campo label { display: block; font-weight: 600; font-size: 13.5px; margin-bottom: 8px; }
+
+.dropzone {
+  border: 2px dashed var(--linha);
+  border-radius: 9px;
+  padding: 28px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  background: #fafcfb;
+}
+.dropzone:hover, .dropzone.ativo { border-color: var(--acento); background: #f0f7f7; }
+.dropzone .icone { font-size: 26px; opacity: .5; }
+.dropzone .dz-texto { color: var(--tinta-suave); font-size: 13.5px; margin-top: 6px; }
+.dropzone .dz-arquivo { color: var(--acento-escuro); font-weight: 600; margin-top: 10px; }
+.dropzone input[type=file] { display: none; }
+
+/* ---- Escolha de modo (segmentado) ---- */
+.modos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modo-op { position: relative; }
+.modo-op input { position: absolute; opacity: 0; }
+.modo-op label {
+  display: block; border: 1.5px solid var(--linha); border-radius: 9px;
+  padding: 14px 16px; cursor: pointer; transition: border-color .15s, background .15s;
+  font-weight: 600; font-size: 14px;
+}
+.modo-op label .desc { display: block; font-weight: 400; font-size: 12.5px; color: var(--tinta-suave); margin-top: 3px; }
+.modo-op input:checked + label { border-color: var(--acento); background: #eef7f7; box-shadow: inset 0 0 0 1px var(--acento); }
+
+/* ---- Botões ---- */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--acento); color: #fff; border: none;
+  padding: 12px 22px; border-radius: 8px; font-size: 14.5px; font-weight: 600;
+  cursor: pointer; text-decoration: none; transition: background .15s;
+}
+.btn:hover { background: var(--acento-escuro); }
+.btn.bloco { width: 100%; justify-content: center; margin-top: 8px; }
+.btn.secundario { background: transparent; color: var(--acento-escuro); border: 1.5px solid var(--linha); }
+.btn.secundario:hover { background: #eef7f7; border-color: var(--acento); }
+
+/* ---- Veredito (selo) ---- */
+.selo {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 13.5px;
+  letter-spacing: .03em; text-transform: uppercase;
+}
+.selo::before { content: ""; width: 9px; height: 9px; border-radius: 50%; }
+.selo.go      { background: var(--go-fundo);      color: var(--go); }
+.selo.go::before      { background: var(--go); }
+.selo.revisar { background: var(--atencao-fundo); color: var(--atencao); }
+.selo.revisar::before { background: var(--atencao); }
+.selo.no_go, .selo.no-go { background: var(--nogo-fundo); color: var(--nogo); }
+.selo.no_go::before, .selo.no-go::before { background: var(--nogo); }
+
+/* ---- Painel de diagnóstico (extração) ---- */
+.diag { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0; }
+.diag .celula {
+  background: #fafcfb; border: 1px solid var(--linha); border-radius: 8px;
+  padding: 14px 16px;
+}
+.diag .rotulo { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--tinta-suave); }
+.diag .valor { font-size: 22px; font-weight: 700; margin-top: 4px; }
+.diag .valor.ok { color: var(--go); }
+.diag .valor.alerta { color: var(--atencao); }
+
+/* ---- Relatório (texto monoespaçado) ---- */
+.relatorio {
+  background: #0d2b34; color: #d6e6e4;
+  border-radius: 9px; padding: 20px 22px;
+  font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
+  font-size: 12.5px; line-height: 1.7;
+  white-space: pre-wrap; overflow-x: auto;
+  margin-top: 8px;
+}
+
+/* ---- Histórico ---- */
+.hist { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.hist th, .hist td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--linha); }
+.hist th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--tinta-suave); font-weight: 600; }
+.hist td.num { text-align: right; }
+.hist .vazio { color: var(--tinta-suave); font-style: italic; padding: 18px 12px; }
+
+/* ---- Mensagens flash ---- */
+.flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 13.5px; font-weight: 500; }
+.flash.erro { background: var(--nogo-fundo); color: var(--nogo); border: 1px solid #eeb8b8; }
+
+/* ---- Login ---- */
+.login-tela { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.login-caixa { width: 100%; max-width: 380px; }
+.login-caixa .marca-grande {
+  text-align: center; margin-bottom: 24px;
+}
+.login-caixa .marca-grande .sigla {
+  display: inline-block; background: var(--acento); color: #fff;
+  padding: 8px 16px; border-radius: 8px; font-size: 26px; font-weight: 700; letter-spacing: .08em;
+}
+.login-caixa .marca-grande .full { display: block; margin-top: 10px; color: var(--tinta-suave); font-size: 13.5px; }
+.input-txt {
+  width: 100%; padding: 12px 14px; border: 1.5px solid var(--linha);
+  border-radius: 8px; font-size: 15px; font-family: inherit; color: var(--tinta);
+  transition: border-color .15s;
+}
+.input-txt:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px rgba(23,112,125,.12); }
+
+/* ---- Responsivo ---- */
+@media (max-width: 640px) {
+  .modos { grid-template-columns: 1fr; }
+  .diag { grid-template-columns: 1fr; }
+  .wrap { padding: 20px 16px 48px; }
+  .cartao { padding: 20px; }
+}
+
+/* ---- Acessibilidade ---- */
+:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HBI — Entrar</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <div class="login-tela">
+    <div class="login-caixa">
+      <div class="marca-grande">
+        <span class="sigla">HBI</span>
+        <span class="full">HospMedic Bid Intelligence — análise de editais</span>
+      </div>
+      <div class="cartao">
+        {% with mensagens = get_flashed_messages(with_categories=true) %}
+          {% for categoria, msg in mensagens %}
+            <div class="flash {{ categoria }}">{{ msg }}</div>
+          {% endfor %}
+        {% endwith %}
+        <form method="POST" action="{{ url_for('login') }}">
+          <div class="campo">
+            <label for="usuario">Usuário</label>
+            <input class="input-txt" type="text" id="usuario" name="usuario"
+                   autocomplete="username" required autofocus>
+          </div>
+          <div class="campo">
+            <label for="senha">Senha</label>
+            <input class="input-txt" type="password" id="senha" name="senha"
+                   autocomplete="current-password" required>
+          </div>
+          <button class="btn bloco" type="submit">Entrar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

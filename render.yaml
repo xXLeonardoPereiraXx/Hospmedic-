@@ -1,0 +1,25 @@
+# Render Blueprint — deploy automático do HBI Web.
+# Para usar: conecte este repositório no painel do Render (New > Blueprint).
+# O HTTPS é provisionado automaticamente pelo Render (TLS gerenciado).
+services:
+  - type: web
+    name: hbi-web
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn webapp.app:app --workers 2 --timeout 180 --bind 0.0.0.0:$PORT"
+    envVars:
+      # Chave de sessão — gerada automaticamente pelo Render (não versionar).
+      - key: HBI_SECRET_KEY
+        generateValue: true
+      # Usuários da equipe: login:senha separados por ';'. DEFINA no painel
+      # do Render (aba Environment), não deixe no código.
+      #   Exemplo: leonardo:senhaForte;maria:outraSenha
+      - key: HBI_USERS
+        sync: false
+      # Caminho do banco. /tmp é efêmero no free tier — os usuários são
+      # re-semeados de HBI_USERS a cada boot, então logins nunca se perdem.
+      - key: HBI_DB_PATH
+        value: /tmp/hbi.db
+      - key: PYTHON_VERSION
+        value: "3.12"

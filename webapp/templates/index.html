@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HBI — Analisar edital</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <div class="topo">
+    <div class="marca">
+      <span class="sigla">HBI</span>
+      <span class="full">HospMedic Bid Intelligence</span>
+    </div>
+    <div class="sessao">
+      <span>{{ usuario }}</span>
+      <a href="{{ url_for('logout') }}">Sair</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    {% with mensagens = get_flashed_messages(with_categories=true) %}
+      {% for categoria, msg in mensagens %}
+        <div class="flash {{ categoria }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="cartao">
+      <h2>Analisar um edital</h2>
+      <p class="sub">Envie o PDF do edital. A validação verifica os critérios de
+        participação; a análise completa também extrai a tabela de itens e gera
+        a planilha preenchida.</p>
+
+      <form method="POST" action="{{ url_for('analisar') }}" enctype="multipart/form-data">
+        <div class="campo">
+          <label>Arquivo do edital (PDF)</label>
+          <div class="dropzone" id="dropzone">
+            <div class="icone">⬆</div>
+            <div class="dz-texto">Clique para selecionar ou arraste o PDF aqui</div>
+            <div class="dz-arquivo" id="dz-arquivo"></div>
+            <input type="file" id="edital" name="edital" accept="application/pdf" required>
+          </div>
+        </div>
+
+        <div class="campo">
+          <label>O que fazer</label>
+          <div class="modos">
+            <div class="modo-op">
+              <input type="radio" id="m-val" name="modo" value="validacao" checked>
+              <label for="m-val">Só validação
+                <span class="desc">Rápido. Veredito GO / Revisar / No-Go com evidências.</span>
+              </label>
+            </div>
+            <div class="modo-op">
+              <input type="radio" id="m-comp" name="modo" value="completo">
+              <label for="m-comp">Análise completa
+                <span class="desc">Validação + extração de itens + planilha para baixar.</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn bloco" type="submit">Analisar edital</button>
+      </form>
+    </div>
+
+    <div class="cartao">
+      <h2>Análises recentes</h2>
+      <p class="sub">Suas últimas verificações neste serviço.</p>
+      <table class="hist">
+        <thead>
+          <tr>
+            <th>Arquivo</th><th>Modo</th><th>Veredito</th>
+            <th class="num">Itens</th><th class="num">Soma (R$)</th><th>Quando</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in historico %}
+          <tr>
+            <td>{{ a.arquivo }}</td>
+            <td>{{ "Completa" if a.modo == "completo" else "Validação" }}</td>
+            <td>
+              {% if a.veredito %}
+                <span class="selo {{ a.veredito }}">{{ a.veredito.replace("_","-") }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num">{{ a.itens if a.itens is not none else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(a.soma) if a.soma is not none else "—" }}</td>
+            <td>{{ a.criado_em[:10] }}</td>
+          </tr>
+          {% else %}
+          <tr><td class="vazio" colspan="6">Nenhuma análise ainda. Envie seu primeiro edital acima.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const dz = document.getElementById('dropzone');
+    const input = document.getElementById('edital');
+    const nome = document.getElementById('dz-arquivo');
+    dz.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      nome.textContent = input.files.length ? input.files[0].name : '';
+    });
+    ['dragover','dragenter'].forEach(ev =>
+      dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('ativo'); }));
+    ['dragleave','drop'].forEach(ev =>
+      dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('ativo'); }));
+    dz.addEventListener('drop', e => {
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        nome.textContent = input.files[0].name;
+      }
+    });
+  </script>
+</body>
+</html>

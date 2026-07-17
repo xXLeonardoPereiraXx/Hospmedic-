@@ -1,0 +1,99 @@
+"""Serviço de orquestração do pipeline HBI (fluxo TO-BE).
+
+Encadeia os módulos independentes na ordem do fluxo desejado:
+
+    seleção do PDF -> leitura -> validação -> extração -> organização
+    -> preenchimento -> (revisão humana)
+
+A revisão humana permanece fora do pipeline automatizado, por design.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from hbi.config import settings
+from hbi.models.edital import Edital
+from hbi.modules import edital_validator, excel_exporter, table_extractor
+from hbi.modules.pdf_reader import PdfReader
+from hbi.utils.logger import get_logger
+
+log = get_logger(__name__)
+
+# Páginas iniciais que concentram as regras de participação do edital.
+PAGINAS_VALIDACAO = 30
+
+
+def processar_edital(
+    caminho_pdf: str | Path,
+    destino_xlsx: str | Path | None = None,
+) -> Edital:
+    """Executa o pipeline completo para um edital em PDF.
+
+    Args:
+        caminho_pdf: Caminho do edital.
+        destino_xlsx: Caminho de saída da planilha. Se ``None``, grava em
+            ``data/output/<nome_do_pdf>.xlsx``.
+
+    Returns:
+        O :class:`Edital` populado (itens + validação), já exportado.
+    """
+    caminho_pdf = Path(caminho_pdf)
+    log.info("Processando edital: %s", caminho_pdf.name)
+
+    with PdfReader(caminho_pdf) as leitor:
+        # 1) Validação de critérios (usa apenas as páginas iniciais).
+        texto_ini = leitor.texto_completo(limite_paginas=PAGINAS_VALIDACAO)
+        metadados = edital_validator.detectar_metadados(texto_ini)
+        validacao = edital_validator.validar(texto_ini)
+
+        # 2) Extração da tabela de itens (varre o documento inteiro; as
+        #    âncoras numéricas se autoidentificam, sem depender de páginas fixas).
+        itens = table_extractor.extrair_itens(leitor)
+
+    edital = Edital(
+        origem=str(caminho_pdf),
+        orgao=metadados["orgao"],
+        numero_pregao=metadados["numero_pregao"],
+        valor_total_estimado=metadados["valor_total_estimado"],
+        itens=itens,
+        validacao=validacao,
+    )
+
+    # 3) Preenchimento da planilha padrão.
+    if destino_xlsx is None:
+        destino_xlsx = settings.OUTPUT_DIR / (caminho_pdf.stem + ".xlsx")
+    excel_exporter.exportar(edital, destino_xlsx)
+
+    return edital
+
+
+def validar_edital(caminho_pdf: str | Path) -> Edital:
+    """Executa **apenas** a validação de critérios (GO/NO-GO), sem extrair
+    itens nem gerar planilha.
+
+    Útil para uma triagem rápida: decidir se vale a pena seguir com a
+    análise completa do edital.
+
+    Args:
+        caminho_pdf: Caminho do edital.
+
+    Returns:
+        Um :class:`Edital` preenchido apenas com metadados e validação
+        (``itens`` vazio).
+    """
+    caminho_pdf = Path(caminho_pdf)
+    log.info("Validando edital (somente critérios): %s", caminho_pdf.name)
+
+    with PdfReader(caminho_pdf) as leitor:
+        texto_ini = leitor.texto_completo(limite_paginas=PAGINAS_VALIDACAO)
+        metadados = edital_validator.detectar_metadados(texto_ini)
+        validacao = edital_validator.validar(texto_ini)
+
+    return Edital(
+        origem=str(caminho_pdf),
+        orgao=metadados["orgao"],
+        numero_pregao=metadados["numero_pregao"],
+        valor_total_estimado=metadados["valor_total_estimado"],
+        itens=[],
+        validacao=validacao,
+    )

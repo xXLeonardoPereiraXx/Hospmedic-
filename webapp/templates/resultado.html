@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HBI — Resultado</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <div class="topo">
+    <div class="marca">
+      <span class="sigla">HBI</span>
+      <span class="full">HospMedic Bid Intelligence</span>
+    </div>
+    <div class="sessao">
+      <span>{{ usuario }}</span>
+      <a href="{{ url_for('logout') }}">Sair</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="cartao">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h2>{{ arquivo }}</h2>
+          <p class="sub">{{ "Análise completa" if modo == "completo" else "Validação de critérios" }}</p>
+        </div>
+        <span class="selo {{ veredito }}">{{ veredito.replace("_","-") }}</span>
+      </div>
+
+      {% if diag %}
+      <div class="diag">
+        <div class="celula">
+          <div class="rotulo">Itens extraídos</div>
+          <div class="valor num">{{ diag.itens }}</div>
+        </div>
+        <div class="celula">
+          <div class="rotulo">Consistência</div>
+          <div class="valor num {{ 'ok' if diag.consistencia_pct >= 98 else 'alerta' }}">
+            {{ "%.0f"|format(diag.consistencia_pct) }}%
+          </div>
+        </div>
+        <div class="celula">
+          <div class="rotulo">Extração</div>
+          <div class="valor" style="font-size:16px; margin-top:8px;">
+            <span class="selo {{ 'go' if diag.gate == 'CONFIAVEL' else 'revisar' }}">{{ diag.gate }}</span>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if download_token %}
+      <a class="btn" href="{{ url_for('download', token=download_token) }}">⬇ Baixar planilha preenchida</a>
+      {% endif %}
+      <a class="btn secundario" href="{{ url_for('index') }}">Analisar outro edital</a>
+    </div>
+
+    <div class="cartao">
+      <h2>Relatório</h2>
+      <p class="sub">Detalhe dos critérios e evidências encontradas no texto do edital.</p>
+      <div class="relatorio">{{ relatorio }}</div>
+    </div>
+  </div>
+</body>
+</html>

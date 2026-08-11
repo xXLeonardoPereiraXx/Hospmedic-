@@ -38,8 +38,9 @@ def test_validacao_go_nogo():
     )
     r = edital_validator.validar(texto)
     nomes_presentes = {c.nome for c in r.criterios if c.presente}
-    assert "Exige AFE (ANVISA)" in nomes_presentes
-    assert "Menor preço por item" in nomes_presentes
+    assert "AFE – Autorização de Funcionamento (ANVISA)" in nomes_presentes
+    assert "Julgamento por menor preço por item" in nomes_presentes
+    assert "SICAF" in nomes_presentes
     assert r.veredito in {"go", "revisar", "no_go"}
     print(f"ok  test_validacao_go_nogo (veredito={r.veredito})")
 

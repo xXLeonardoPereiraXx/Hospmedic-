@@ -1,18 +1,5 @@
-07:31:19 | INFO    | hbi.services.pipeline | Validando edital (somente critérios): 49d7442f_08-07-2026_-_09h30_-_PE_64-2026_-_Sao_Jose_dos_Pinhais_-_PR_-_EDITAL.pdf
-07:31:19 | INFO    | hbi.modules.pdf_reader | PDF aberto: 49d7442f_08-07-2026_-_09h30_-_PE_64-2026_-_Sao_Jose_dos_Pinhais_-_PR_-_EDITAL.pdf (42 páginas)
-07:31:22 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (9 critérios)
-07:32:03 | INFO    | hbi.services.pipeline | Processando edital: 1fdc41b2_08-07-2026_-_09h30_-_PE_64-2026_-_Sao_Jose_dos_Pinhais_-_PR_-_EDITAL.pdf
-07:32:03 | INFO    | hbi.modules.pdf_reader | PDF aberto: 1fdc41b2_08-07-2026_-_09h30_-_PE_64-2026_-_Sao_Jose_dos_Pinhais_-_PR_-_EDITAL.pdf (42 páginas)
-07:32:06 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (9 critérios)
-07:32:07 | INFO    | hbi.modules.table_extractor | Itens extraídos: 22 (âncora genérica)
-07:32:37 | INFO    | hbi.modules.excel_exporter | Planilha gerada: 1fdc41b2_resultado.xlsx (22 itens)
-07:33:28 | INFO    | hbi.services.pipeline | Processando edital: 1baef31f_07-07-2026_-_09_hrs_-_PE_111-2026_-_FURB_Blumenau_SC_Portal_compras.br.pdf
-07:33:28 | INFO    | hbi.modules.pdf_reader | PDF aberto: 1baef31f_07-07-2026_-_09_hrs_-_PE_111-2026_-_FURB_Blumenau_SC_Portal_compras.br.pdf (42 páginas)
-07:33:32 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (9 critérios)
-07:33:33 | WARNING | hbi.modules.table_extractor | Nenhuma âncora de item encontrada nas páginas varridas.
-07:34:05 | INFO    | hbi.modules.excel_exporter | Planilha gerada: 1baef31f_resultado.xlsx (0 itens)
-07:34:38 | INFO    | hbi.services.pipeline | Processando edital: 8f795b15_08-07-2026_-_09_hrs_-_PE_04-2026_-_5o_Brigada_de_Cavalaria_Blindada_-_Termo_de_referencia.pdf
-07:34:39 | INFO    | hbi.modules.pdf_reader | PDF aberto: 8f795b15_08-07-2026_-_09_hrs_-_PE_04-2026_-_5o_Brigada_de_Cavalaria_Blindada_-_Termo_de_referencia.pdf (65 páginas)
-07:34:41 | INFO    | hbi.modules.edital_validator | Validação: veredito=go (9 critérios)
-07:34:47 | WARNING | hbi.modules.table_extractor | Nenhuma âncora de item encontrada nas páginas varridas.
-07:35:17 | INFO    | hbi.modules.excel_exporter | Planilha gerada: 8f795b15_resultado.xlsx (0 itens)
+01:02:25 | INFO    | hbi.services.pipeline | Processando edital: bcf36031_03-08-2026_-_10_hrs_-_PE_713-2026_SESA_PR_Portal_GOV.pdf
+01:02:25 | INFO    | hbi.modules.pdf_reader | PDF aberto: bcf36031_03-08-2026_-_10_hrs_-_PE_713-2026_SESA_PR_Portal_GOV.pdf (81 páginas)
+01:02:29 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
+01:02:38 | WARNING | hbi.modules.table_extractor | Nenhuma âncora de item encontrada nas páginas varridas.
+01:03:11 | INFO    | hbi.modules.excel_exporter | Planilha gerada: bcf36031_resultado.xlsx (0 itens)

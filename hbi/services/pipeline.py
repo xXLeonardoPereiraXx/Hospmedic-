@@ -20,7 +20,11 @@ from hbi.utils.logger import get_logger
 log = get_logger(__name__)
 
 # Páginas iniciais que concentram as regras de participação do edital.
-PAGINAS_VALIDACAO = 30
+# A validação de critérios varre o documento inteiro: os documentos de
+# habilitação (regularidade fiscal, econômico-financeira, declarações) costumam
+# ficar no meio ou no fim do edital, não no preâmbulo. Ler só as primeiras
+# páginas gerava falsos "ausente". None = sem limite.
+PAGINAS_VALIDACAO = None
 
 
 def processar_edital(
@@ -42,7 +46,7 @@ def processar_edital(
 
     with PdfReader(caminho_pdf) as leitor:
         # 1) Validação de critérios (usa apenas as páginas iniciais).
-        texto_ini = leitor.texto_completo(limite_paginas=PAGINAS_VALIDACAO)
+        texto_ini = leitor.texto_rapido(limite_paginas=PAGINAS_VALIDACAO)
         metadados = edital_validator.detectar_metadados(texto_ini)
         validacao = edital_validator.validar(texto_ini)
 
@@ -55,6 +59,7 @@ def processar_edital(
         orgao=metadados["orgao"],
         numero_pregao=metadados["numero_pregao"],
         valor_total_estimado=metadados["valor_total_estimado"],
+        valores_declarados=metadados.get("valores_declarados", []),
         itens=itens,
         validacao=validacao,
     )
@@ -85,7 +90,7 @@ def validar_edital(caminho_pdf: str | Path) -> Edital:
     log.info("Validando edital (somente critérios): %s", caminho_pdf.name)
 
     with PdfReader(caminho_pdf) as leitor:
-        texto_ini = leitor.texto_completo(limite_paginas=PAGINAS_VALIDACAO)
+        texto_ini = leitor.texto_rapido(limite_paginas=PAGINAS_VALIDACAO)
         metadados = edital_validator.detectar_metadados(texto_ini)
         validacao = edital_validator.validar(texto_ini)
 
@@ -94,6 +99,7 @@ def validar_edital(caminho_pdf: str | Path) -> Edital:
         orgao=metadados["orgao"],
         numero_pregao=metadados["numero_pregao"],
         valor_total_estimado=metadados["valor_total_estimado"],
+        valores_declarados=metadados.get("valores_declarados", []),
         itens=[],
         validacao=validacao,
     )

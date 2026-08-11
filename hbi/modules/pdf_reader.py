@@ -60,12 +60,53 @@ class PdfReader:
     def texto_completo(self, limite_paginas: int | None = None) -> str:
         """Concatena o texto de todas as páginas (ou das ``limite_paginas`` primeiras).
 
+        Usa pdfplumber (preciso, porém mais lento). Para a validação de
+        critérios — que só faz busca textual — prefira ``texto_rapido``.
+
         Args:
-            limite_paginas: Se informado, lê apenas as N primeiras páginas —
-                útil para validação de critérios, que ficam no início do edital.
+            limite_paginas: Se informado, lê apenas as N primeiras páginas.
         """
         paginas = self._doc.pages
         if limite_paginas is not None:
             paginas = paginas[:limite_paginas]
         partes = [(p.extract_text() or "") for p in paginas]
         return "\n".join(partes)
+
+    def texto_rapido(self, limite_paginas: int | None = None) -> str:
+        """Extrai o texto do documento inteiro com pypdf — bem mais rápido.
+
+        A validação de critérios varre todo o edital (a habilitação costuma
+        ficar no meio/fim), então a velocidade importa: o pypdf é ~4x mais
+        rápido que o pdfplumber para extração puramente textual, com cobertura
+        equivalente para busca de termos. Não use quando precisar de
+        posicionamento/coordenadas — para isso, ``texto_completo``/``paginas``.
+        """
+        from pypdf import PdfReader as _PyPdf
+
+        try:
+            leitor = _PyPdf(str(self.caminho))
+            paginas = leitor.pages
+            if limite_paginas is not None:
+                paginas = paginas[:limite_paginas]
+            bruto = "\n".join((pg.extract_text() or "") for pg in paginas)
+            # O pypdf frequentemente fragmenta o texto, colocando cada palavra
+            # (ou o espaço entre elas) em sua própria linha:
+            #   "Atestado\n \nde\n \ncapacidade\n \ntécnica"
+            # Isso quebraria tanto as buscas por termo quanto as regras que
+            # usam [^\n] para limitar proximidade. A normalização abaixo
+            # reconstrói o fluxo do texto:
+            import re as _re
+
+            t = bruto
+            # 1) remove linhas que contêm só espaços (separadores do pypdf)
+            t = _re.sub(r"\n[ \t]*\n", "\n", t)
+            # 2) junta quebras que caem no meio de uma frase — quando a linha
+            #    seguinte começa com minúscula/dígito, era continuação de texto
+            t = _re.sub(r"\n(?=[a-zà-ú0-9])", " ", t)
+            # 3) colapsa espaços/tabs repetidos
+            t = _re.sub(r"[ \t]+", " ", t)
+            return t
+        except Exception as exc:  # noqa: BLE001
+            # Em caso de PDF problemático, cai para o extrator preciso.
+            log.warning("texto_rapido falhou (%s); usando pdfplumber.", exc)
+            return self.texto_completo(limite_paginas)

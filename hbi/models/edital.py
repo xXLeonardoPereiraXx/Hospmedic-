@@ -13,6 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Abaixo deste número de itens, a consistência interna não é evidência
+# suficiente para declarar a extração confiável (ver ``diagnostico_extracao``).
+MIN_ITENS_PARA_CONFIANCA = 3
+
 
 @dataclass
 class ItemEdital:
@@ -26,6 +30,9 @@ class ItemEdital:
         valor_estimado: Valor unitário estimado pelo órgão (R$).
         valor_total: Valor total estimado da linha (R$).
         pagina: Página do PDF de onde a linha foi extraída (rastreabilidade).
+        lote: Número do lote, em editais organizados por lote (ex.: portal
+            BLL, onde a numeração de item reinicia a cada lote). ``None``
+            em editais com tabela de itens única.
     """
 
     item: int
@@ -35,6 +42,7 @@ class ItemEdital:
     valor_estimado: float
     valor_total: float
     pagina: int
+    lote: Optional[int] = None
 
     def confere_total(self, tolerancia: float = 0.5) -> bool:
         """Indica se ``quantidade * valor_estimado`` bate com ``valor_total``.
@@ -52,15 +60,19 @@ class CriterioValidacao:
     Attributes:
         nome: Nome legível do critério (ex.: ``"Exige AFE/ANVISA"``).
         presente: Se o critério foi detectado no texto do edital.
-        impacto: ``"go"`` (favorável/atende), ``"no_go"`` (impeditivo) ou
-            ``"atencao"`` (requer análise humana).
+        impacto: ``"go"`` (favorável/atende), ``"no_go"`` (impeditivo),
+            ``"atencao"`` (requer análise humana) ou ``"checklist"``
+            (documento de habilitação padrão; não altera o veredito).
         evidencia: Trecho do edital que embasou a decisão (rastreabilidade).
+        categoria: Agrupamento no relatório (ex.: "Regularidade Fiscal e
+            Trabalhista"). Vazio para os critérios legados.
     """
 
     nome: str
     presente: bool
     impacto: str
     evidencia: str = ""
+    categoria: str = ""
 
 
 @dataclass
@@ -93,9 +105,16 @@ class Edital:
     origem: str
     orgao: Optional[str] = None
     numero_pregao: Optional[str] = None
+    # Valor global informado no edital, usado APENAS como referência de porte
+    # na triagem (modo validação, onde ainda não há itens extraídos). No modo
+    # completo o número oficial é a soma dos itens (``soma_itens``), exata.
     valor_total_estimado: Optional[float] = None
     itens: list[ItemEdital] = field(default_factory=list)
     validacao: Optional[ResultadoValidacao] = None
+    # Todos os valores globais declarados no texto (um edital pode trazer mais
+    # de um: soma dos itens vs. verba disponível). Registrados para referência;
+    # não geram mais aviso de divergência, por decisão de produto.
+    valores_declarados: list[float] = field(default_factory=list)
 
     @property
     def soma_itens(self) -> float:
@@ -109,11 +128,14 @@ class Edital:
         return nums == list(range(1, len(nums) + 1)) if nums else False
 
     def diagnostico_extracao(self) -> dict:
-        """Diagnóstico do gate híbrido: confiabilidade da extração.
+        """Diagnóstico do gate de extração: confiabilidade dos dados.
 
-        Se o edital declara um total global, compara-o com a soma dos itens.
-        Caso contrário, avalia a consistência interna (qtd × valor == total)
-        e a completude da sequência de itens.
+        Baseia-se na evidência interna dos próprios itens — a consistência
+        (qtd × valor unitário == valor total) e a completude da sequência
+        (1..N sem lacunas). O valor global declarado no edital NÃO é usado
+        como referência: editais frequentemente declaram valores que divergem
+        entre si (soma dos itens vs. verba disponível), então ele não é uma
+        âncora confiável. A soma dos itens extraídos é o número oficial.
         """
         total = len(self.itens)
         consistentes = sum(1 for i in self.itens if i.confere_total())
@@ -125,23 +147,21 @@ class Edital:
             "soma_itens": self.soma_itens,
             "linhas_consistentes": consistentes,
             "consistencia_pct": pct,
-            "total_declarado": self.valor_total_estimado,
         }
 
-        if self.valor_total_estimado is not None:
-            bate = abs(self.soma_itens - self.valor_total_estimado) <= 0.5
-            diag["bate_com_declarado"] = bate
-            if bate and self.sequencia_completa:
-                diag["gate"] = "CONFIAVEL"
-                diag["motivo_gate"] = "soma dos itens == total declarado"
-            else:
-                diag["gate"] = "REVISAR"
-                diag["motivo_gate"] = "soma dos itens diverge do total declarado"
+        # Com pouquíssimos itens a evidência interna é fraca demais: uma tabela
+        # com 1 item satisfaz "sequência completa" e "100% consistente"
+        # trivialmente, mesmo que a extração tenha perdido todo o resto.
+        if total < MIN_ITENS_PARA_CONFIANCA:
+            diag["gate"] = "REVISAR"
+            diag["motivo_gate"] = (
+                f"poucos itens extraídos ({total}) — extração possivelmente "
+                "incompleta"
+            )
+        elif pct >= 98 and self.sequencia_completa:
+            diag["gate"] = "CONFIAVEL"
+            diag["motivo_gate"] = "consistência interna alta e sequência completa"
         else:
-            if pct >= 98 and self.sequencia_completa:
-                diag["gate"] = "CONFIAVEL"
-                diag["motivo_gate"] = "consistência interna alta e sequência completa"
-            else:
-                diag["gate"] = "REVISAR"
-                diag["motivo_gate"] = "consistência interna baixa ou sequência incompleta"
+            diag["gate"] = "REVISAR"
+            diag["motivo_gate"] = "consistência interna baixa ou sequência incompleta"
         return diag

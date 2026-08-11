@@ -64,6 +64,14 @@ def exportar(edital: Edital, destino: str | Path) -> Path:
     ws.cell(row=cab, column=col_confere, value="Confere")
     ws.cell(row=cab, column=col_confere).font = Font(bold=True)
 
+    # Em editais organizados por lote, a disputa acontece por lote — o número
+    # precisa ficar visível para quem vai lançar a proposta.
+    usa_lotes = any(it.lote is not None for it in edital.itens)
+    col_lote = col_confere + 1 if usa_lotes else None
+    if col_lote:
+        ws.cell(row=cab, column=col_lote, value="Lote")
+        ws.cell(row=cab, column=col_lote).font = Font(bold=True)
+
     # Limpa qualquer conteúdo residual do modelo abaixo do cabeçalho
     # (o modelo vem com fórmulas/totais pré-montados para ~185 itens; vamos
     # regravá-los conforme a quantidade real de itens deste edital).
@@ -115,6 +123,8 @@ def exportar(edital: Edital, destino: str | Path) -> Path:
         cel = ws.cell(row=linha, column=col_confere, value=confere)
         if confere != "OK":
             cel.fill = alerta
+        if col_lote and it.lote is not None:
+            ws.cell(row=linha, column=col_lote, value=it.lote)
         linha += 1
 
     ultima = linha - 1

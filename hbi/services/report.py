@@ -24,10 +24,13 @@ def montar_relatorio(edital: Edital) -> str:
     add(f"Origem        : {Path(edital.origem).name}")
     add(f"Órgão         : {edital.orgao or '(não identificado)'}")
     add(f"Pregão        : {edital.numero_pregao or '(não identificado)'}")
-    if edital.valor_total_estimado is not None:
-        add(f"Valor edital  : R$ {float_para_brl(edital.valor_total_estimado)}")
     add(f"Itens         : {len(edital.itens)}")
-    add(f"Soma extraída : R$ {float_para_brl(edital.soma_itens)}")
+    # No modo completo o valor oficial é a SOMA DOS ITENS extraídos — número
+    # exato e derivado dos dados reais da tabela. Editais costumam declarar
+    # valores globais que divergem entre si (soma dos itens vs. verba
+    # disponível); esses não são usados aqui para evitar ruído.
+    add(f"Valor total   : R$ {float_para_brl(edital.soma_itens)}  "
+        f"(soma dos {len(edital.itens)} itens)")
 
     # --- Gate de extração (confiabilidade dos dados) ---
     diag = edital.diagnostico_extracao()
@@ -36,10 +39,6 @@ def montar_relatorio(edital: Edital) -> str:
     add(f"  Sequência 1..N completa : {'sim' if diag['sequencia_completa'] else 'NÃO'}")
     add(f"  Linhas consistentes     : {diag['linhas_consistentes']}/{diag['itens']}"
         f" ({diag['consistencia_pct']:.1f}%)")
-    if diag.get("total_declarado") is not None:
-        estado = "OK" if diag.get("bate_com_declarado") else "DIVERGE"
-        add(f"  Soma x total declarado  : {estado}"
-            f" (declarado R$ {float_para_brl(diag['total_declarado'])})")
 
     # Veredito.
     if edital.validacao is not None:
@@ -94,7 +93,14 @@ def montar_relatorio_validacao(edital: Edital) -> str:
     add(f"Órgão         : {edital.orgao or '(não identificado)'}")
     add(f"Pregão        : {edital.numero_pregao or '(não identificado)'}")
     if edital.valor_total_estimado is not None:
-        add(f"Valor edital  : R$ {float_para_brl(edital.valor_total_estimado)}")
+        # Na triagem não há extração de itens, então mostramos o valor
+        # informado no edital apenas como referência de PORTE (ordem de
+        # grandeza para decidir se vale participar). Não é tratado como
+        # verdade absoluta — o valor exato sai da soma dos itens no modo
+        # completo. Editais podem declarar mais de um valor global; usamos
+        # o primeiro/mais específico só para dimensionar.
+        add(f"Valor de referência : R$ {float_para_brl(edital.valor_total_estimado)} "
+            f"(estimativa de porte, informada no edital)")
 
     if edital.validacao is not None:
         v = edital.validacao
@@ -102,16 +108,43 @@ def montar_relatorio_validacao(edital: Edital) -> str:
         add(f"VEREDITO      : {_SIMBOLO.get(v.veredito, v.veredito.upper())} "
             f"{v.veredito.upper()}")
         add(f"Justificativa : {v.justificativa}")
-        add("")
-        add("Critérios avaliados:")
-        for c in v.criterios:
-            marca = "x" if c.presente else " "
-            add(f"  [{marca}] ({c.impacto:7}) {c.nome}")
-            if c.presente and c.evidencia:
-                add(f"        └ evidência: …{c.evidencia}…")
+
+        _adicionar_criterios_por_categoria(add, v.criterios)
 
     add("=" * 68)
     return "\n".join(linhas)
+
+
+def _adicionar_criterios_por_categoria(add, criterios) -> None:
+    """Escreve os critérios agrupados por categoria, em formato de checklist.
+
+    Os critérios de decisão (impacto go/atenção/no_go) aparecem primeiro, com
+    a evidência textual; os documentos de habilitação ('checklist') vêm em
+    seguida, agrupados pelas seções do Espelho de Documentos, mostrando
+    presença/ausência e um total por seção.
+    """
+    from hbi.config.criterios_espelho import CATEGORIAS
+
+    # agrupa preservando a ordem de CATEGORIAS
+    por_cat: dict[str, list] = {cat: [] for cat in CATEGORIAS}
+    for c in criterios:
+        por_cat.setdefault(c.categoria or "Outros", []).append(c)
+
+    for categoria in por_cat:
+        itens = por_cat[categoria]
+        if not itens:
+            continue
+        presentes = sum(1 for c in itens if c.presente)
+        add("")
+        add(f"── {categoria}  ({presentes}/{len(itens)}) "
+            + "─" * max(0, 48 - len(categoria)))
+        for c in itens:
+            marca = "X" if c.presente else " "
+            add(f"  [{marca}] {c.nome}")
+            # evidência só para os critérios de decisão presentes (mantém o
+            # checklist de habilitação enxuto e legível)
+            if c.presente and c.evidencia and c.impacto in ("go", "atencao", "no_go"):
+                add(f"        └ evidência: …{c.evidencia}…")
 
 
 def salvar_relatorio_validacao(edital: Edital, destino: str | Path) -> Path:

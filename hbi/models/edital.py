@@ -115,6 +115,9 @@ class Edital:
     # de um: soma dos itens vs. verba disponível). Registrados para referência;
     # não geram mais aviso de divergência, por decisão de produto.
     valores_declarados: list[float] = field(default_factory=list)
+    # Diagnóstico do join de descritivos técnicos (ver ``spec_extractor``).
+    # Vazio em editais cuja tabela já traz a descrição completa.
+    diagnostico_descritivos: dict = field(default_factory=dict)
 
     @property
     def soma_itens(self) -> float:

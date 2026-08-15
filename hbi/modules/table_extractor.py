@@ -41,8 +41,14 @@ _RS = r"(?:R\$\s*)?"
 # sufixo NÃO pode ser um valor monetário: isso garante que os dois valores
 # capturados sejam sempre os DOIS ÚLTIMOS da linha (unitário e total).
 _SUFIXO = r"(?:\s+(?!(?:R\$\s*)?" + _MONEY + r")\S+){0,6}[\s\-–]*$"
+# Prefixo textual opcional antes do número do item. Editais em formato de
+# "ficha por lote" (SESA/Curitiba) rotulam a linha como "ITEM 1 PEÇA 276.315
+# R$ 4,28 R$ 1.182.628,20" — o número não abre a linha, vem depois da palavra.
+_ITEM_PREFIXO = r"(?:ITE(?:M|NS)\s+)?"
 _ANCHOR = re.compile(
-    r"^\s*(\d+)\b(.*?)" + _RS + r"(" + _MONEY + r")\s+" + _RS + r"(" + _MONEY + r")" + _SUFIXO
+    r"^\s*" + _ITEM_PREFIXO + r"(\d+)\b(.*?)" + _RS + r"(" + _MONEY + r")\s+" + _RS
+    + r"(" + _MONEY + r")" + _SUFIXO,
+    re.I,
 )
 
 # Para o layout INVERTIDO (Florianópolis): linha de valores que NÃO começa com
@@ -77,7 +83,13 @@ _SALTO_MAXIMO = 12
 # Editais organizados por lote (portal BLL e similares) abrem cada bloco com
 # "Lote: N" e o encerram com uma linha "TOTAL <valor>". O cabeçalho da tabela
 # se repete a cada lote/página. As três marcações delimitam blocos de item.
-_LOTE = re.compile(r"^[^\w]{0,40}Lote:\s*(\d+)", re.I)
+_LOTE = re.compile(
+    r"^[^\w]{0,40}Lote:\s*(\d+)"
+    # Cabeçalho de ficha por lote (SESA/Curitiba): "LOTE 1 – AMPLA CONCORRÊNCIA"
+    # ou "LOTE 2 – LOTE RESERVADO PARA ME/EPP" — sem dois-pontos após o número.
+    r"|^\s*LOTE\s+(\d+)\s*[–\-—]",
+    re.I,
+)
 _TOTAL_LINHA = re.compile(r"^\s*TOTAL\s+" + _MONEY + r"\s*$", re.I)
 
 # Palavras que nomeiam colunas da tabela de itens. O cabeçalho é reconhecido
@@ -98,6 +110,16 @@ def _eh_cabecalho_tabela(linha: str) -> bool:
         return False
     achados = {m.group(0).lower() for m in _CABECALHO_RE.finditer(linha)}
     return len(achados) >= 3
+# Rótulo de regime de participação: abre o bloco de um item em editais que
+# marcam a reserva por item (padrão ICS/Curitiba e derivados). Serve como
+# fronteira estrutural — o texto que vem depois pertence ao PRÓXIMO item, e
+# sem isso a descrição de um item invade a do vizinho.
+_REGIME_PARTICIPACAO = re.compile(
+    r"^\s*(?:EXCLUSIV[OA]|AMPLA|COTA|RESERVAD[OA]|LOTE\s+RESERVADO)\b"
+    r".{0,60}?(?:ME[I]?\s*/|ME/EPP|MEI|EPP|PARTICIPA[ÇC][ÃA]O|CONCORR[ÊE]NCIA)",
+    re.I,
+)
+
 _NOISE = re.compile(
     r"(MUNIC[ÍI]PIO|Estado do Paran|ANEXO|^Item\b|^Und\b|^Forne|^\d+\.\d"
     r"|CNPJ|e-mail|Telefone|^Rua |HAVENDO|OBJETO CONSTANTE|EDITAL\."
@@ -105,7 +127,13 @@ _NOISE = re.compile(
     r"|Valor Uni|Valor Total|MÉDIA|PRODUTO|Descrição|P[áa]gina\s*:"
     # fragmentos de cabeçalho de tabela quebrado em várias linhas pelo PDF
     # (ex.: "Nome do produto/serviço" vira "produto/se" + "rviço")
-    r"|^produto/|^rvi[çc]o\b|^dade\s+m[áa]ximo|^servi[çc]o\b|ARITM[ÉE]TICA)",
+    r"|^produto/|^rvi[çc]o\b|^dade\s+m[áa]ximo|^servi[çc]o\b|ARITM[ÉE]TICA"
+    # fragmentos do cabeçalho das fichas por lote (SESA/Curitiba), que o PDF
+    # quebra em linhas soltas: "Exigências / complementar / es do item",
+    # "Valor unitário / máximo / (CRITÉRIO DE / ACEITABILIDADE / DE PREÇOS)".
+    r"|^es do item|ACEITABILIDADE|CRIT[ÉE]RIO DE|^complementar|^Exig[êe]ncias"
+    r"|^Descri[çc][ãa]o do objeto|^Valor unit|^m[áa]ximo\b|^DE PRE[ÇC]OS\)"
+    r"|^Lote\s+\d+\s+Descri)",
     re.I,
 )
 
@@ -137,6 +165,8 @@ def _quantidade_parse(miolo: str) -> float | None:
 _UNIDADE_RE = re.compile(
     r"\b(CX|CAIXA|UNID|UND|UNI|UN|PCT|PC|PACOTE|ROLO|RL|LITRO|LT|EMB|FRASCO"
     r"|FRS|FR|PAR|KG|ML|MT|CONJ|BOLSA|GAL[ÃA]O|GL|BOMBA|AMPOLA|AMP|TB|DZ"
+    # PEÇA: unidade padrão das fichas por lote da SESA/Curitiba.
+    r"|PE[ÇC]AS?|PÇ"
     r"|L|G)\b",
     re.I,
 )
@@ -195,14 +225,96 @@ def _parse_miolo(miolo: str) -> tuple[str, str]:
     return desc, unidade
 
 
+def _mobiliario_de_pagina(paginas_linhas: list[list[str]]) -> set[str]:
+    """Identifica cabeçalho/rodapé repetidos (mobiliário de página).
+
+    Editais carimbam todas as páginas com o mesmo bloco de cabeçalho (órgão,
+    endereço, telefone, site) e rodapé (numeração, modelo da minuta). Quando um
+    item atravessa a quebra de página, esse bloco cai **no meio da descrição**.
+
+    A detecção não usa lista de palavras — que apagaria texto legítimo, já que
+    descrições de produto contêm "produto", "registro", "validade" etc. Usa-se
+    a combinação de duas evidências que o conteúdo real não tem:
+
+    1. **posição fixa** — a linha aparece sempre entre as primeiras ou as
+       últimas linhas da página; e
+    2. **repetição** — aparece assim em boa parte das páginas do documento.
+
+    Uma frase de descrição pode até se repetir entre itens parecidos, mas cai
+    em posições variáveis; e uma linha de topo pode ser conteúdo, mas não se
+    repete página após página. Exigir as duas evidências junta o que é seguro
+    remover.
+    """
+    if len(paginas_linhas) < 3:
+        return set()
+
+    LIMIAR = 0.6                  # fração das páginas que precisa concordar
+    MAX_FAIXA = 12                # teto de linhas de cabeçalho/rodapé
+    n_pag = len(paginas_linhas)
+    minimo = max(3, int(n_pag * LIMIAR))
+
+    def _norm(ln: str) -> str:
+        return re.sub(r"\d+", "#", ln.strip())
+
+    def _linha(pagina: list[str], k: int, do_fim: bool) -> str | None:
+        # limita a faixa a 1/3 da página: em páginas curtas, cabeçalho e rodapé
+        # não podem engolir o miolo.
+        if len(pagina) < 6 or k >= max(1, len(pagina) // 3):
+            return None
+        try:
+            return _norm(pagina[-(k + 1)] if do_fim else pagina[k])
+        except IndexError:
+            return None
+
+    mobiliario: set[str] = set()
+    for do_fim in (False, True):
+        # Avança a partir da borda enquanto a linha daquela posição for a mesma
+        # na maioria das páginas. Parar no primeiro desacordo garante que só
+        # o bloco CONTÍGUO de borda seja removido — uma frase de descrição que
+        # por acaso se repita no miolo nunca é alcançada.
+        for k in range(MAX_FAIXA):
+            contagem: dict[str, int] = {}
+            for pagina in paginas_linhas:
+                ln = _linha(pagina, k, do_fim)
+                if ln and len(ln) >= 4:
+                    contagem[ln] = contagem.get(ln, 0) + 1
+            if not contagem:
+                break
+            candidata, vezes = max(contagem.items(), key=lambda kv: kv[1])
+            if vezes < minimo:
+                break
+            mobiliario.add(candidata)
+
+    return mobiliario
+
+
+def _eh_mobiliario(linha: str, mobiliario: set[str]) -> bool:
+    return re.sub(r"\d+", "#", linha.strip()) in mobiliario
+
+
 def _coletar_linhas(reader, pagina_inicio: int, pagina_fim: int | None) -> list[str]:
-    linhas: list[str] = []
+    from hbi.modules.pdf_reader import sem_marca_dagua
+
     paginas = list(reader.paginas())
     fim = pagina_fim if pagina_fim is not None else len(paginas)
+
+    por_pagina: list[list[str]] = []
     for pi in range(pagina_inicio, min(fim, len(paginas))):
-        texto = paginas[pi].extract_text() or ""
-        for ln in texto.split("\n"):
-            linhas.append((ln.strip(), pi + 1))  # guarda a página (rastreabilidade)
+        texto = sem_marca_dagua(paginas[pi]).extract_text() or ""
+        por_pagina.append([ln.strip() for ln in texto.split("\n")])
+
+    mobiliario = _mobiliario_de_pagina(por_pagina)
+    if mobiliario:
+        log.info("Cabeçalho/rodapé de página detectado: %d linhas ignoradas.",
+                 len(mobiliario))
+
+    linhas: list[str] = []
+    for offset, linhas_pg in enumerate(por_pagina):
+        pagina = pagina_inicio + offset + 1  # rastreabilidade (1-based)
+        for ln in linhas_pg:
+            if _eh_mobiliario(ln, mobiliario):
+                continue
+            linhas.append((ln, pagina))
     return linhas
 
 
@@ -248,7 +360,7 @@ def extrair_itens(
     for idx, ln in enumerate(linhas):
         m_lote = _LOTE.match(ln)
         if m_lote:
-            lote_atual = int(m_lote.group(1))
+            lote_atual = int(m_lote.group(1) or m_lote.group(2))
             esperado = 1  # a numeração de item recomeça dentro do lote
             continue
         m = _ANCHOR.match(ln)
@@ -352,15 +464,23 @@ def extrair_itens(
             esperado = num + 1
 
     if not anchors:
+        log.info(
+            "Nenhuma âncora de tabela encontrada; tentando itens em blocos de texto."
+        )
+        itens_blocos = extrair_itens_blocos(reader)
+        if itens_blocos:
+            return itens_blocos
         log.warning("Nenhuma âncora de item encontrada nas páginas varridas.")
         return []
 
-    # 2) Fronteiras estruturais: cabeçalho de tabela, linha de TOTAL e início
-    #    de lote delimitam blocos. Elas impedem que uma linha de descrição
-    #    "vaze" de um item para outro (ou do texto introdutório para o item 1).
+    # 2) Fronteiras estruturais: cabeçalho de tabela, linha de TOTAL, início
+    #    de lote e rótulo de regime de participação delimitam blocos. Elas
+    #    impedem que uma linha de descrição "vaze" de um item para outro (ou do
+    #    texto introdutório para o item 1).
     fronteiras = {
         i for i, ln in enumerate(linhas)
         if _LOTE.match(ln) or _TOTAL_LINHA.match(ln) or _eh_cabecalho_tabela(ln)
+        or _REGIME_PARTICIPACAO.match(ln)
     }
 
     def _mesma_secao(a: int, b: int) -> bool:
@@ -408,8 +528,15 @@ def extrair_itens(
         candidatos = []
         if pos > 0:
             candidatos.append(pos - 1)          # âncora acima
-        if pos < len(aidx) and not modo_avante:
-            candidatos.append(pos)              # âncora abaixo
+        if pos < len(aidx):
+            # A âncora abaixo entra sempre que o modo não for "avante"; e,
+            # mesmo no modo avante, quando a âncora de cima está separada por
+            # uma fronteira estrutural — nesse caso a linha abre o bloco do
+            # próximo item (ex.: ICS, onde a descrição começa acima da âncora,
+            # logo após o rótulo de regime de participação).
+            acima_isolada = pos == 0 or not _mesma_secao(aidx[pos - 1], i)
+            if not modo_avante or acima_isolada:
+                candidatos.append(pos)          # âncora abaixo
         melhor, bk = 10**9, None
         for k in candidatos:
             if not _mesma_secao(aidx[k], i):
@@ -490,3 +617,128 @@ def _unidade_do_miolo(miolo: str) -> str:
     if m_pos:
         return m_pos.group(1)
     return ""
+
+
+# =============================================================================
+# Estratégia B — itens em BLOCOS DE TEXTO (edital sem tabela de itens)
+# =============================================================================
+# Alguns editais (padrão FEAS/Curitiba) não trazem tabela alguma: cada item é
+# um bloco de texto corrido, com rótulo próprio e os dados em linhas rotuladas.
+#
+#   Item 2: 66376/ BR0619857/ Luva para Procedimento em Látex Tamanho P
+#   Luva de procedimento P, não cirúrgica, em látex natural ...
+#   Quantidade: 2.400.000 unidades
+#   Valor máximo permitido: R$ 0,2200
+#
+# Aqui não existe valor total impresso: ele é derivado de qtd × unitário. Por
+# isso a conferência automática não é evidência independente nesses editais —
+# o gate de extração se apoia na sequência 1..N.
+
+_BLOCO_ITEM = re.compile(r"^Item\s+(\d+)\s*:?\s*(.*)$", re.I)
+_BLOCO_QTD = re.compile(
+    r"^Quantidade(?:\s+estimada|\s+total)?\s*:\s*([\d.]+(?:,\d+)?)\s*([A-Za-zÀ-ú]+)?",
+    re.I,
+)
+_BLOCO_VALOR = re.compile(
+    r"^Valor\s+(?:m[áa]ximo(?:\s+permitido|\s+unit[áa]rio)?|unit[áa]rio(?:\s+m[áa]ximo)?"
+    r"|estimado|de\s+refer[êe]ncia)\s*:?\s*R?\$?\s*(" + _MONEY + r")",
+    re.I,
+)
+
+
+def _to_float_qtd(txt: str) -> float:
+    """Converte quantidade em formato brasileiro ('2.400.000', '1.500,5')."""
+    t = txt.strip()
+    if "," in t:
+        return float(t.replace(".", "").replace(",", "."))
+    return float(t.replace(".", ""))
+
+
+def extrair_itens_blocos(reader) -> list[ItemEdital]:
+    """Extrai itens dispostos como blocos de texto rotulados (sem tabela).
+
+    Cada bloco vai do seu rótulo ``Item N:`` até o rótulo seguinte. Dentro do
+    bloco, procura-se a quantidade e o valor unitário em linhas rotuladas; a
+    descrição é o texto entre o rótulo e essas linhas.
+
+    Returns:
+        Lista de :class:`ItemEdital`, ou lista vazia se o documento não segue
+        este formato.
+    """
+    linhas_pag = _coletar_linhas(reader, 0, None)
+    linhas = [lp[0] for lp in linhas_pag]
+    paginas = [lp[1] for lp in linhas_pag]
+
+    # 1) Âncoras de bloco, com contagem incremental (rejeita "Item 5" citado
+    #    em cláusulas do edital, que não seguem a sequência).
+    ancoras: list[tuple[int, int, str]] = []  # idx, numero, resto do rótulo
+    esperado = 1
+    for i, ln in enumerate(linhas):
+        m = _BLOCO_ITEM.match(ln)
+        if not m:
+            continue
+        num = int(m.group(1))
+        if esperado <= num <= esperado + _SALTO_MAXIMO:
+            ancoras.append((i, num, m.group(2).strip()))
+            esperado = num + 1
+
+    if len(ancoras) < 2:
+        return []
+
+    # 2) Cada bloco vai até a âncora seguinte (o último, até o fim do texto).
+    itens: list[ItemEdital] = []
+    for k, (idx, num, titulo) in enumerate(ancoras):
+        fim = ancoras[k + 1][0] if k + 1 < len(ancoras) else len(linhas)
+        quantidade = unidade = None
+        valor = None
+        corpo: list[str] = []
+        for j in range(idx + 1, fim):
+            ln = linhas[j]
+            mq = _BLOCO_QTD.match(ln)
+            if mq:
+                quantidade = _to_float_qtd(mq.group(1))
+                unidade = (mq.group(2) or "").strip()
+                continue
+            mv = _BLOCO_VALOR.match(ln)
+            if mv:
+                valor = _to_float(mv.group(1))
+                continue
+            # O filtro _NOISE existe para cabeçalhos de TABELA e não pode ser
+            # aplicado aqui: ele casa palavras soltas ("produto", "descrição",
+            # "registro") que aparecem legitimamente no meio de uma descrição
+            # de produto — apagá-las mutilaria o texto do edital. Nos blocos, o
+            # cabeçalho/rodapé de página já foi removido em ``_coletar_linhas``.
+            if len(ln) < 3:
+                continue
+            corpo.append(ln)
+
+        # O valor pode cair logo ANTES do rótulo seguinte, já na página nova,
+        # depois do rodapé — nesse caso ele foi consumido acima. Se ainda
+        # faltar, procura na janela imediatamente após o fim do bloco.
+        if valor is None:
+            for j in range(fim, min(fim + 6, len(linhas))):
+                mv = _BLOCO_VALOR.match(linhas[j])
+                if mv:
+                    valor = _to_float(mv.group(1))
+                    break
+
+        if quantidade is None or valor is None:
+            log.warning("Item %s sem quantidade ou valor identificável.", num)
+            continue
+
+        descricao = normalizar_espacos(" ".join([titulo] + corpo))
+        itens.append(
+            ItemEdital(
+                item=num,
+                descricao=descricao,
+                unidade=unidade or "",
+                quantidade=quantidade,
+                valor_estimado=valor,
+                # Sem total impresso: derivado de qtd × unitário.
+                valor_total=round(quantidade * valor, 2),
+                pagina=paginas[idx],
+            )
+        )
+
+    log.info("Itens extraídos: %d (blocos de texto rotulados)", len(itens))
+    return itens

@@ -40,6 +40,17 @@ def montar_relatorio(edital: Edital) -> str:
     add(f"  Linhas consistentes     : {diag['linhas_consistentes']}/{diag['itens']}"
         f" ({diag['consistencia_pct']:.1f}%)")
 
+    # --- Join de descritivos técnicos (editais com descrição em seção à parte) ---
+    dd = getattr(edital, "diagnostico_descritivos", None) or {}
+    if dd.get("tipo_chave"):
+        add("")
+        add(f"DESCRITIVOS   : {dd['descritivos']} blocos indexados por "
+            f"{dd['tipo_chave']}; {dd['itens_enriquecidos']} itens enriquecidos")
+        if dd.get("itens_sem_descritivo"):
+            add(f"  Itens sem descritivo : {dd['itens_sem_descritivo'][:15]}")
+        if dd.get("descritivos_orfaos"):
+            add(f"  Descritivos órfãos   : {dd['descritivos_orfaos'][:15]}")
+
     # Veredito.
     if edital.validacao is not None:
         v = edital.validacao

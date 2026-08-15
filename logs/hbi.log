@@ -1,5 +1,10 @@
-01:02:25 | INFO    | hbi.services.pipeline | Processando edital: bcf36031_03-08-2026_-_10_hrs_-_PE_713-2026_SESA_PR_Portal_GOV.pdf
-01:02:25 | INFO    | hbi.modules.pdf_reader | PDF aberto: bcf36031_03-08-2026_-_10_hrs_-_PE_713-2026_SESA_PR_Portal_GOV.pdf (81 páginas)
-01:02:29 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
-01:02:38 | WARNING | hbi.modules.table_extractor | Nenhuma âncora de item encontrada nas páginas varridas.
-01:03:11 | INFO    | hbi.modules.excel_exporter | Planilha gerada: bcf36031_resultado.xlsx (0 itens)
+07:32:42 | INFO    | hbi.services.pipeline | Validando edital (somente critérios): 6b11488f_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf
+07:32:43 | INFO    | hbi.modules.pdf_reader | PDF aberto: 6b11488f_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf (111 páginas)
+07:32:47 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
+07:33:31 | INFO    | hbi.services.pipeline | Processando edital: 25e94782_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf
+07:33:31 | INFO    | hbi.modules.pdf_reader | PDF aberto: 25e94782_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf (111 páginas)
+07:33:35 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
+07:33:47 | INFO    | hbi.modules.table_extractor | Cabeçalho/rodapé de página detectado: 1 linhas ignoradas.
+07:33:47 | INFO    | hbi.modules.table_extractor | Itens extraídos: 39 (âncora genérica, edital por lote)
+07:33:47 | INFO    | hbi.modules.spec_extractor | Nenhum descritivo técnico separado encontrado.
+07:34:18 | INFO    | hbi.modules.excel_exporter | Planilha gerada: 25e94782_resultado.xlsx (39 itens)

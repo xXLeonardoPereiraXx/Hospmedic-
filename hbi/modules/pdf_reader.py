@@ -16,6 +16,27 @@ from hbi.utils.logger import get_logger
 log = get_logger(__name__)
 
 
+def sem_marca_dagua(pagina):
+    """Devolve a página sem os caracteres da marca d'água (carimbo rotacionado).
+
+    Editais publicados por portais de protocolo (ex.: FEAS/Curitiba) trazem um
+    carimbo diagonal sobre todas as páginas. O extrator de texto intercala
+    esses caracteres com o conteúdo real, partindo palavras no meio
+    (``"para que ha" + "j a3 melhor ajuste"``) e inserindo linhas de 1–2
+    caracteres — o que inviabiliza tanto a leitura das descrições quanto o
+    casamento das âncoras.
+
+    O carimbo se distingue por estar **rotacionado**: sua matriz de
+    transformação tem o termo de inclinação não nulo, enquanto o texto normal
+    tem exatamente zero. Filtrar por essa propriedade remove o carimbo sem
+    tocar em nenhum caractere do corpo do documento.
+    """
+    return pagina.filter(
+        lambda o: o.get("object_type") != "char"
+        or abs(o.get("matrix", (1, 0, 0, 1, 0, 0))[1]) < 0.01
+    )
+
+
 class PdfReader:
     """Encapsula o acesso ao PDF do edital.
 

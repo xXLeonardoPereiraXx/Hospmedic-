@@ -23,11 +23,15 @@ etapa final** do fluxo.
 3. **Extrai** Item, Descrição, Unidade, Quantidade, Valor Unitário e Valor
    Total da tabela de itens (`table_extractor`), por **âncoras numéricas** —
    estratégia independente do layout do edital (ver seção abaixo).
-4. **Preenche** a planilha-modelo da HospMedic (`excel_exporter`),
+4. **Reúne descritivos separados** (`spec_extractor`): quando o edital põe
+   quantidade/valores na tabela e a especificação técnica completa em outra
+   seção, os dois lados são unidos pelo lote ou pelo número do item.
+5. **Preenche** a planilha-modelo da HospMedic (`excel_exporter`),
    regravando as fórmulas de custo/lance/total e acrescentando a coluna
    **Confere** (e **Lote**, quando o edital disputa por lote).
-5. **Relata** o resultado (`services/report`): veredito, gate de
-   confiabilidade da extração e checklist de habilitação por categoria.
+6. **Relata** o resultado (`services/report`): veredito, gate de
+   confiabilidade da extração, diagnóstico do join de descritivos e
+   checklist de habilitação por categoria.
 
 Fluxo TO-BE:
 `seleção do PDF → leitura → validação → extração → organização → preenchimento → revisão humana`
@@ -94,6 +98,7 @@ hbi/
 │   │   ├── pdf_reader.py        # leitura de baixo nível (pdfplumber + pypdf)
 │   │   ├── edital_validator.py  # validação GO/NO-GO + metadados
 │   │   ├── table_extractor.py   # extração da tabela por âncoras numéricas
+│   │   ├── spec_extractor.py    # descritivos técnicos em seção separada
 │   │   └── excel_exporter.py    # preenchimento da planilha padrão
 │   ├── services/
 │   │   ├── pipeline.py          # orquestra o fluxo TO-BE
@@ -124,20 +129,26 @@ monetários — e é validada pela própria matemática da linha. Regras:
    esperado (1, 2, 3, …), com folga limitada para saltos. Isso rejeita
    falsos-positivos de dígitos soltos. Em editais **por lote**, a contagem
    reinicia a cada `Lote: N`.
-3. **Layout invertido**: quando a linha de valores não começa pelo número
+3. **Fronteira por regime de participação**: em editais que marcam a reserva
+   item a item (`EXCLUSIVO MEI/ME/EPP`, `AMPLA PARTICIPAÇÃO`, `COTA ME/EPP`),
+   esse rótulo abre o bloco de um item e funciona como fronteira estrutural.
+   Sem ele, a descrição de um item invade a do vizinho — e o começo do texto,
+   que nesses layouts fica **acima** da linha-âncora, seria atribuído ao item
+   anterior.
+4. **Layout invertido**: quando a linha de valores não começa pelo número
    (descrição + valores) e o número abre a linha seguinte, o par é
    reconhecido em conjunto.
-4. **Valor quebrado**: quando o PDF parte um valor para outra linha (um
+5. **Valor quebrado**: quando o PDF parte um valor para outra linha (um
    `R$` órfão e o número deslocado — inclusive misturado a texto ou
    empurrado para depois de rodapé em quebra de página), o valor é buscado
    numa janela ao redor da âncora. Perto da âncora, basta a razão
    total/unitário ser inteira; longe dela, só é aceito se `qtd × unitário
    == total` fechar exatamente. A quantidade também pode ser a **soma** de
    múltiplas colunas de quantidade (editais com mais de um destinatário).
-5. **Quantidade derivada**: calculada de `valor_total / valor_unitário`
+6. **Quantidade derivada**: calculada de `valor_total / valor_unitário`
    (os dois dados mais confiáveis da linha); o parse do miolo da âncora
    serve de verificação cruzada.
-6. **Descrição**: montada dos fragmentos ao redor da âncora (antes, depois
+7. **Descrição**: montada dos fragmentos ao redor da âncora (antes, depois
    ou na própria linha, conforme o layout), ordenados pela posição de
    origem. Fronteiras estruturais (cabeçalho de tabela, linhas de `TOTAL`,
    início de lote) impedem que texto "vaze" de um item para outro.
@@ -153,6 +164,92 @@ Layouts validados com os editais de `data/input/`:
 | Campo Largo (PE 56/2026, itens) | compacto, item na própria linha | 112/112 | 0 divergências |
 | São José dos Pinhais | grade | 22/22 | soma exata, 0 divergências |
 | 5ª Brigada (TR 28/2026) | colunas de margem + valores quebrados | 187/187 | 0 divergências |
+| SESA/PR (PE 713/2026) | ficha por lote (`ITEM 1 PEÇA …`) | 22/22 | soma exata = valor declarado |
+| FEAS/Curitiba (PE 70/2026) | **sem tabela** — itens em blocos de texto | 13/13 | sequência completa |
+| ICS/Curitiba (PE 11/2026) | descrição acima e abaixo da âncora, com rótulo de regime | 21/21 | 0 divergências |
+| Campo do Tenente (PE 18/2026) | por lote, descrição multilinha | 39/39 | 0 divergências |
+| Unicentro (PE 828/2026) | tabela simples, item zero-padded | 5/5 | 0 divergências |
+
+### Estratégia B — itens em blocos de texto (edital sem tabela)
+
+Alguns editais não têm tabela de itens: cada item é um **bloco de texto
+rotulado**, com os dados em linhas próprias.
+
+```
+Item 2: 66376/ BR0619857/ Luva para Procedimento em Látex Tamanho P
+Luva de procedimento P, não cirúrgica, em látex natural ...
+Quantidade: 2.400.000 unidades
+Valor máximo permitido: R$ 0,2200
+```
+
+Quando a varredura por âncoras não encontra tabela alguma, o extrator cai
+automaticamente para esta estratégia: segmenta por `Item N:`, lê quantidade e
+valor unitário das linhas rotuladas (aceitando variantes como "Valor unitário
+máximo" e "Quantidade estimada") e monta a descrição com o texto do bloco. A
+contagem incremental descarta menções a "Item N" em cláusulas do edital.
+
+Nesses editais **não há valor total impresso** — ele é derivado de
+`qtd × unitário`. Por isso a conferência automática não é evidência
+independente aqui, e o gate de extração se apoia na completude da sequência.
+
+### Cabeçalho e rodapé de página
+
+Quando um item atravessa a quebra de página, o bloco de cabeçalho/rodapé do
+edital (órgão, endereço, "Página X de Y", modelo da minuta) cai **no meio da
+descrição**. A limpeza não usa lista de palavras — apagar linhas por conterem
+"produto", "registro" ou "validade" mutilaria descrições legítimas. Em vez
+disso, o cabeçalho e o rodapé são identificados como o **prefixo e o sufixo
+contíguos** que se repetem na maioria das páginas: a varredura avança a partir
+da borda e para no primeiro desacordo, de modo que uma frase de descrição que
+por acaso se repita no miolo nunca é alcançada. Em páginas curtas as faixas
+encolhem para no máximo um terço da página.
+
+### Marca d'água (carimbo de protocolo)
+
+Editais publicados por portais de protocolo trazem um carimbo diagonal em
+todas as páginas. O extrator de texto intercala esses caracteres com o
+conteúdo, partindo palavras no meio (`"para que ha" + "j a3 melhor ajuste"`).
+O `pdf_reader.sem_marca_dagua` descarta os caracteres **rotacionados** (matriz
+de transformação com termo de inclinação não nulo), removendo o carimbo sem
+tocar em nenhum caractere do corpo do documento.
+
+---
+
+## Descritivos técnicos em seção separada
+
+Editais do padrão SESA/Curitiba (e derivados) dividem o item em duas partes
+do documento: a **tabela**, com quantidade, unidade e valores — onde a
+descrição vem resumida — e uma **seção de especificações técnicas**, onde o
+descritivo íntegro aparece indexado por um rótulo. O `spec_extractor` lê a
+segunda parte e faz o *join* com os itens já extraídos.
+
+Duas formas de indexação são suportadas, e a escolha é feita **por
+documento**, pela predominância dos rótulos encontrados:
+
+- **por lote** — `LOTES 1 E 2: CURATIVO FIX CATÉTER CURTA PERMANÊNCIA.`
+  (edital organizado em lotes, cada um com item único; a numeração de item
+  reinicia a cada lote, então o lote é a única chave estável);
+- **por item** — `ITEM 5: SERINGA DESCARTÁVEL 20 ml` (itens soltos, com
+  numeração corrida ao longo do edital).
+
+Como funciona:
+
+1. **Localiza a seção** pelo cabeçalho (`1.2 ESPECIFICAÇÕES TÉCNICAS` e
+   variantes). Sem cabeçalho identificável, varre o documento inteiro — os
+   rótulos se autoidentificam.
+2. **Segmenta por âncoras de rótulo**: cada bloco vai do seu rótulo até o
+   próximo, ou até o fim da seção (`1.2.1 Requisitos…`, `2. DA JUSTIFICATIVA`).
+   O texto não é removido do documento; fatiar preserva as fronteiras.
+3. **Expande o rótulo em chaves**: um bloco pode cobrir vários lotes de uma
+   vez, e o edital alterna as formas (`LOTES 1 E 2`, `LOTE 17 e 18`).
+4. **Limpa o corpo** de rodapés institucionais e cabeçalhos de página.
+5. **Une ao item**, preservando a descrição resumida da tabela (que traz os
+   códigos GMS/CATMAT, ausentes na seção de especificações).
+
+O relatório informa quantos itens foram enriquecidos, quais ficaram **sem
+descritivo** e quais descritivos ficaram **órfãos** — os dois últimos são
+pontos de revisão humana, não erros silenciosos. Editais cuja tabela já traz
+a descrição completa passam intactos pelo módulo.
 
 ---
 
@@ -230,7 +327,14 @@ interno da HospMedic — fora do escopo do MVP).
 
 ## Interface web
 
-A pasta `webapp/` expõe o mesmo pipeline no navegador (Flask):
+A pasta `webapp/` expõe o mesmo pipeline no navegador (Flask), com a
+**identidade visual da HospMedic**: logo na barra superior e na tela de
+entrada, azul-marinho `#203763` e verde `#649A06` do manual de marca, e
+tipografia Montserrat. O semáforo de decisão (GO / REVISAR / NO-GO) usa o
+verde da marca no GO e tons calibrados de âmbar e vermelho — as cores ali são
+funcionais, para leitura imediata do veredito, não decorativas.
+
+Recursos:
 
 - login por sessão com senhas **em hash** (usuários semeados da variável
   `HBI_USERS` a cada boot — os acessos sobrevivem ao disco efêmero do

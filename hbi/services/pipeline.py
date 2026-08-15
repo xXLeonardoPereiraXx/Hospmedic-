@@ -13,7 +13,9 @@ from pathlib import Path
 
 from hbi.config import settings
 from hbi.models.edital import Edital
-from hbi.modules import edital_validator, excel_exporter, table_extractor
+from hbi.modules import (
+    edital_validator, excel_exporter, spec_extractor, table_extractor,
+)
 from hbi.modules.pdf_reader import PdfReader
 from hbi.utils.logger import get_logger
 
@@ -54,6 +56,14 @@ def processar_edital(
         #    âncoras numéricas se autoidentificam, sem depender de páginas fixas).
         itens = table_extractor.extrair_itens(leitor)
 
+        # 3) Descritivos técnicos completos, quando o edital os mantém em
+        #    seção separada da tabela (padrão SESA/Curitiba). O join usa lote
+        #    ou número do item, conforme a indexação do próprio documento.
+        tipo_chave, descritivos = spec_extractor.extrair_descritivos(texto_ini)
+        diag_descritivos = spec_extractor.aplicar_descritivos(
+            itens, tipo_chave, descritivos
+        )
+
     edital = Edital(
         origem=str(caminho_pdf),
         orgao=metadados["orgao"],
@@ -63,8 +73,9 @@ def processar_edital(
         itens=itens,
         validacao=validacao,
     )
+    edital.diagnostico_descritivos = diag_descritivos
 
-    # 3) Preenchimento da planilha padrão.
+    # 4) Preenchimento da planilha padrão.
     if destino_xlsx is None:
         destino_xlsx = settings.OUTPUT_DIR / (caminho_pdf.stem + ".xlsx")
     excel_exporter.exportar(edital, destino_xlsx)

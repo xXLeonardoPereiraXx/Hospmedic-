@@ -1,29 +1,44 @@
 /* HBI — HospMedic Bid Intelligence
-   Direção visual: "instrumento de triagem". Azul-petróleo institucional,
-   verde-clínico (GO) e âmbar (atenção) como semáforo de decisão. Números
-   tabulares para alinhar valores. Sem cream/serif/terracota genéricos. */
+   Identidade visual da HospMedic: azul-marinho #203763 e verde #649A06,
+   tipografia Montserrat (manual de marca). O semáforo de decisão
+   (GO / REVISAR / NO-GO) é funcional, não decorativo: o verde do GO é o
+   próprio verde da marca; âmbar e vermelho foram calibrados para conversar
+   com a paleta sem perder a leitura imediata de "siga / atenção / pare". */
 
 :root {
-  --tinta:        #0b2a33;   /* azul-petróleo profundo (texto/estrutura) */
-  --tinta-suave:  #3a5a63;
-  --papel:        #f2f5f4;   /* fundo levemente frio */
+  /* --- Marca HospMedic --- */
+  --marca-azul:   #203763;   /* azul-marinho institucional */
+  --marca-verde:  #649A06;   /* verde institucional */
+  --azul-escuro:  #16264a;   /* gradiente 2 do manual (topo/rodapé) */
+  --verde-escuro: #4d7a04;
+
+  /* --- Estrutura --- */
+  --tinta:        #203763;   /* texto e estrutura: azul da marca */
+  --tinta-suave:  #5c6b85;
+  --papel:        #eef1f4;   /* gradiente 3 do manual: cinza claro frio */
   --papel-branco: #ffffff;
-  --linha:        #d3ddda;
-  --go:           #1a8f5c;   /* verde-clínico */
-  --go-fundo:     #e3f4ec;
-  --atencao:      #b8791a;   /* âmbar */
-  --atencao-fundo:#fbf0dc;
-  --nogo:         #c23b3b;   /* vermelho contido */
-  --nogo-fundo:   #fbe7e7;
-  --acento:       #17707d;   /* teal do sistema (botões/links) */
-  --acento-escuro:#0f5560;
-  --sombra: 0 1px 3px rgba(11, 42, 51, .08), 0 8px 24px rgba(11, 42, 51, .06);
+  --linha:        #d5dbe4;
+
+  /* --- Semáforo de decisão --- */
+  --go:           #4d7a04;   /* verde da marca, escurecido para contraste */
+  --go-fundo:     #eef6e0;
+  --atencao:      #a8710f;   /* âmbar */
+  --atencao-fundo:#fdf3de;
+  --nogo:         #b4302f;   /* vermelho contido */
+  --nogo-fundo:   #fbe9e8;
+
+  /* --- Ações --- */
+  --acento:       #203763;   /* botões e links: azul da marca */
+  --acento-escuro:#16264a;
+  --acento-claro: #eaeff7;   /* fundos de estado (hover/seleção) */
+
+  --sombra: 0 1px 3px rgba(32, 55, 99, .08), 0 8px 24px rgba(32, 55, 99, .07);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-family: "Montserrat", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   background: var(--papel);
   color: var(--tinta);
   line-height: 1.55;
@@ -35,25 +50,31 @@ body {
 
 /* ---- Barra superior ---- */
 .topo {
-  background: var(--tinta);
-  color: #eaf2f1;
-  padding: 14px 24px;
+  /* gradiente 2 do manual de marca */
+  background: linear-gradient(100deg, var(--marca-azul) 0%, var(--azul-escuro) 100%);
+  color: #e8edf5;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-bottom: 3px solid var(--marca-verde);
 }
 .topo .marca {
-  display: flex; align-items: baseline; gap: 10px;
-  font-weight: 700; letter-spacing: .01em; font-size: 18px;
+  display: flex; align-items: center; gap: 14px;
 }
-.topo .marca .sigla {
-  background: var(--acento);
-  color: #fff; padding: 3px 8px; border-radius: 5px;
-  font-size: 15px; letter-spacing: .06em;
+.topo .marca img { height: 30px; width: auto; display: block; }
+.topo .marca .divisor {
+  width: 1px; height: 26px; background: rgba(255,255,255,.22);
 }
-.topo .marca .full { color: #9fc0c3; font-weight: 500; font-size: 13px; }
+.topo .marca .produto {
+  display: flex; flex-direction: column; line-height: 1.25;
+}
+.topo .marca .produto .sigla {
+  font-weight: 700; font-size: 15px; letter-spacing: .08em; color: #fff;
+}
+.topo .marca .produto .full { color: #a9b8d2; font-weight: 500; font-size: 11.5px; }
 .topo .sessao { display: flex; align-items: center; gap: 16px; font-size: 13px; }
-.topo .sessao a { color: #9fc0c3; text-decoration: none; }
+.topo .sessao a { color: #a9b8d2; text-decoration: none; }
 .topo .sessao a:hover { color: #fff; text-decoration: underline; }
 
 /* ---- Container ---- */
@@ -84,9 +105,9 @@ body {
   text-align: center;
   cursor: pointer;
   transition: border-color .15s, background .15s;
-  background: #fafcfb;
+  background: #fafbfd;
 }
-.dropzone:hover, .dropzone.ativo { border-color: var(--acento); background: #f0f7f7; }
+.dropzone:hover, .dropzone.ativo { border-color: var(--acento); background: var(--acento-claro); }
 .dropzone .icone { font-size: 26px; opacity: .5; }
 .dropzone .dz-texto { color: var(--tinta-suave); font-size: 13.5px; margin-top: 6px; }
 .dropzone .dz-arquivo { color: var(--acento-escuro); font-weight: 600; margin-top: 10px; }
@@ -102,7 +123,7 @@ body {
   font-weight: 600; font-size: 14px;
 }
 .modo-op label .desc { display: block; font-weight: 400; font-size: 12.5px; color: var(--tinta-suave); margin-top: 3px; }
-.modo-op input:checked + label { border-color: var(--acento); background: #eef7f7; box-shadow: inset 0 0 0 1px var(--acento); }
+.modo-op input:checked + label { border-color: var(--acento); background: var(--acento-claro); box-shadow: inset 0 0 0 1px var(--acento); }
 
 /* ---- Botões ---- */
 .btn {
@@ -114,7 +135,7 @@ body {
 .btn:hover { background: var(--acento-escuro); }
 .btn.bloco { width: 100%; justify-content: center; margin-top: 8px; }
 .btn.secundario { background: transparent; color: var(--acento-escuro); border: 1.5px solid var(--linha); }
-.btn.secundario:hover { background: #eef7f7; border-color: var(--acento); }
+.btn.secundario:hover { background: var(--acento-claro); border-color: var(--acento); }
 
 /* ---- Veredito (selo) ---- */
 .selo {
@@ -133,7 +154,7 @@ body {
 /* ---- Painel de diagnóstico (extração) ---- */
 .diag { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0; }
 .diag .celula {
-  background: #fafcfb; border: 1px solid var(--linha); border-radius: 8px;
+  background: #fafbfd; border: 1px solid var(--linha); border-radius: 8px;
   padding: 14px 16px;
 }
 .diag .rotulo { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--tinta-suave); }
@@ -143,7 +164,7 @@ body {
 
 /* ---- Relatório (texto monoespaçado) ---- */
 .relatorio {
-  background: #0d2b34; color: #d6e6e4;
+  background: var(--azul-escuro); color: #dce4f0;
   border-radius: 9px; padding: 20px 22px;
   font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
   font-size: 12.5px; line-height: 1.7;
@@ -160,25 +181,32 @@ body {
 
 /* ---- Mensagens flash ---- */
 .flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: 13.5px; font-weight: 500; }
-.flash.erro { background: var(--nogo-fundo); color: var(--nogo); border: 1px solid #eeb8b8; }
+.flash.erro { background: var(--nogo-fundo); color: var(--nogo); border: 1px solid #eec3c1; }
 
 /* ---- Login ---- */
-.login-tela { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.login-tela {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  /* gradiente 3 do manual: cinza claro com centro luminoso */
+  background: radial-gradient(ellipse at 50% 38%, #ffffff 0%, var(--papel) 68%, #e2e7ee 100%);
+}
 .login-caixa { width: 100%; max-width: 380px; }
-.login-caixa .marca-grande {
-  text-align: center; margin-bottom: 24px;
+.login-caixa .marca-grande { text-align: center; margin-bottom: 22px; }
+.login-caixa .marca-grande img { width: 210px; height: auto; }
+.login-caixa .marca-grande .produto {
+  display: block; margin-top: 14px; color: var(--tinta-suave); font-size: 13px;
+  letter-spacing: .02em;
 }
-.login-caixa .marca-grande .sigla {
-  display: inline-block; background: var(--acento); color: #fff;
-  padding: 8px 16px; border-radius: 8px; font-size: 26px; font-weight: 700; letter-spacing: .08em;
+.login-caixa .marca-grande .produto strong {
+  color: var(--marca-azul); font-weight: 700; letter-spacing: .06em;
 }
-.login-caixa .marca-grande .full { display: block; margin-top: 10px; color: var(--tinta-suave); font-size: 13.5px; }
+/* filete verde da marca no topo do cartão de login */
+.login-caixa .cartao { border-top: 3px solid var(--marca-verde); }
 .input-txt {
   width: 100%; padding: 12px 14px; border: 1.5px solid var(--linha);
   border-radius: 8px; font-size: 15px; font-family: inherit; color: var(--tinta);
   transition: border-color .15s;
 }
-.input-txt:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px rgba(23,112,125,.12); }
+.input-txt:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px rgba(32,55,99,.14); }
 
 /* ---- Responsivo ---- */
 @media (max-width: 640px) {
@@ -191,3 +219,14 @@ body {
 /* ---- Acessibilidade ---- */
 :focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+
+/* ---- Rodapé de marca ---- */
+.rodape {
+  text-align: center; padding: 24px 16px 40px;
+  color: var(--tinta-suave); font-size: 12px;
+}
+.rodape .barra {
+  width: 46px; height: 3px; background: var(--marca-verde);
+  margin: 0 auto 12px; border-radius: 2px;
+}

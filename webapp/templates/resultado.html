@@ -4,13 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HBI — Resultado</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
 </head>
 <body>
   <div class="topo">
     <div class="marca">
-      <span class="sigla">HBI</span>
-      <span class="full">HospMedic Bid Intelligence</span>
+      <img src="{{ url_for('static', filename='hospmedic-simbolo-claro.png') }}"
+           alt="HospMedic — Produtos Hospitalares">
+      <span class="divisor"></span>
+      <span class="produto">
+        <span class="sigla">HBI</span>
+        <span class="full">HospMedic · Bid Intelligence</span>
+      </span>
     </div>
     <div class="sessao">
       <span>{{ usuario }}</span>
@@ -61,5 +70,10 @@
       <div class="relatorio">{{ relatorio }}</div>
     </div>
   </div>
+  <div class="rodape">
+    <div class="barra"></div>
+    HospMedic — Produtos Hospitalares · HBI Bid Intelligence
+  </div>
+
 </body>
 </html>

@@ -4,14 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HBI — Entrar</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
 </head>
 <body>
   <div class="login-tela">
     <div class="login-caixa">
       <div class="marca-grande">
-        <span class="sigla">HBI</span>
-        <span class="full">HospMedic Bid Intelligence — análise de editais</span>
+        <img src="{{ url_for('static', filename='hospmedic-logo.png') }}"
+             alt="HospMedic — Produtos Hospitalares">
+        <span class="produto"><strong>HBI</strong> · Bid Intelligence — análise de editais</span>
       </div>
       <div class="cartao">
         {% with mensagens = get_flashed_messages(with_categories=true) %}

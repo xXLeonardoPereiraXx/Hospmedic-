@@ -295,13 +295,19 @@ def _eh_mobiliario(linha: str, mobiliario: set[str]) -> bool:
 def _coletar_linhas(reader, pagina_inicio: int, pagina_fim: int | None) -> list[str]:
     from hbi.modules.pdf_reader import sem_marca_dagua
 
-    paginas = list(reader.paginas())
-    fim = pagina_fim if pagina_fim is not None else len(paginas)
+    paginas = reader.paginas_indexadas(pagina_inicio, pagina_fim)
 
     por_pagina: list[list[str]] = []
-    for pi in range(pagina_inicio, min(fim, len(paginas))):
-        texto = sem_marca_dagua(paginas[pi]).extract_text() or ""
+    for pagina in paginas:
+        texto = sem_marca_dagua(pagina).extract_text() or ""
         por_pagina.append([ln.strip() for ln in texto.split("\n")])
+        # Libera o cache de objetos da página (chars, linhas, retângulos).
+        # Sem isso o pdfplumber retém tudo até o fim do documento e o consumo
+        # cresce linearmente com o número de páginas — o que estourava o
+        # limite de memória de instâncias pequenas em editais longos.
+        pagina.flush_cache()
+        if hasattr(pagina, "close"):
+            pagina.close()
 
     mobiliario = _mobiliario_de_pagina(por_pagina)
     if mobiliario:

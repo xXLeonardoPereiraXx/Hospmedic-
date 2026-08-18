@@ -64,6 +64,20 @@ class PdfReader:
             self._pdf.close()
             self._pdf = None
 
+    def paginas_indexadas(self, inicio: int = 0, fim: int | None = None):
+        """Itera as páginas do intervalo **sem materializar a lista inteira**.
+
+        Cada página do pdfplumber carrega seus objetos sob demanda e os mantém
+        em cache. Guardar todas as páginas numa lista faz o consumo de memória
+        crescer com o tamanho do documento; percorrer uma a uma (e liberar o
+        cache depois de usar) mantém o pico baixo e constante — o que permite
+        rodar editais de centenas de páginas em instâncias pequenas.
+        """
+        paginas = self._doc.pages
+        ultimo = len(paginas) if fim is None else min(fim, len(paginas))
+        for i in range(inicio, ultimo):
+            yield paginas[i]
+
     @property
     def _doc(self) -> pdfplumber.PDF:
         if self._pdf is None:

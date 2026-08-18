@@ -230,3 +230,23 @@ body {
   width: 46px; height: 3px; background: var(--marca-verde);
   margin: 0 auto 12px; border-radius: 2px;
 }
+
+/* ---- Página de progresso ---- */
+.progresso { margin-top: 18px; }
+.barra-indeterminada {
+  height: 6px; border-radius: 3px; background: var(--acento-claro);
+  overflow: hidden; position: relative;
+}
+.barra-indeterminada span {
+  position: absolute; inset: 0; width: 40%;
+  background: linear-gradient(90deg, var(--marca-azul), var(--marca-verde));
+  border-radius: 3px; animation: corre 1.4s ease-in-out infinite;
+}
+@keyframes corre {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+.progresso .etapa {
+  margin: 16px 0 4px; font-weight: 600; color: var(--marca-azul); font-size: 14.5px;
+}
+.progresso .aviso { color: var(--tinta-suave); font-size: 13px; margin: 0; }

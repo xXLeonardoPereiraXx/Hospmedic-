@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HBI — Analisando…</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <div class="topo">
+    <div class="marca">
+      <img src="{{ url_for('static', filename='hospmedic-simbolo-claro.png') }}"
+           alt="HospMedic — Produtos Hospitalares">
+      <span class="divisor"></span>
+      <span class="produto">
+        <span class="sigla">HBI</span>
+        <span class="full">HospMedic · Bid Intelligence</span>
+      </span>
+    </div>
+    <div class="sessao">
+      <span>{{ usuario }}</span>
+      <a href="{{ url_for('logout') }}">Sair</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="cartao">
+      <h2>Analisando o edital</h2>
+      <p class="sub">{{ arquivo }}</p>
+
+      <div class="progresso">
+        <div class="barra-indeterminada"><span></span></div>
+        <p class="etapa" id="etapa">Iniciando…</p>
+        <p class="aviso">
+          Editais longos levam alguns minutos. Pode deixar esta aba aberta —
+          a página avança sozinha quando terminar.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="rodape">
+    <div class="barra"></div>
+    HospMedic — Produtos Hospitalares · HBI Bid Intelligence
+  </div>
+
+  <script>
+    const id = "{{ tarefa_id }}";
+    const etapa = document.getElementById('etapa');
+    let falhas = 0;
+
+    async function consultar() {
+      try {
+        const r = await fetch(`/estado/${id}`);
+        if (!r.ok) throw new Error('sem resposta');
+        const d = await r.json();
+        falhas = 0;
+        if (d.etapa) etapa.textContent = d.etapa;
+        if (d.estado === 'pronto' || d.estado === 'erro') {
+          window.location = `/resultado/${id}`;
+          return;
+        }
+      } catch (e) {
+        // O serviço pode estar ocupado ou reiniciando: insiste algumas vezes
+        // antes de desistir, em vez de derrubar a espera no primeiro erro.
+        if (++falhas > 20) {
+          etapa.textContent = 'Sem resposta do servidor. Tente novamente.';
+          return;
+        }
+      }
+      setTimeout(consultar, 2000);
+    }
+    consultar();
+  </script>
+</body>
+</html>

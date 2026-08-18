@@ -63,3 +63,29 @@ banco externo.
 - Senhas são guardadas com **hash** (`werkzeug.security`), nunca em texto puro.
 - O acesso a todas as telas (exceto login) exige sessão autenticada.
 - Em produção, use senhas fortes em `HBI_USERS` e nunca versione o `.env`.
+
+
+## Desempenho em instâncias pequenas
+
+O free tier do Render oferece **512 MB de RAM e 0.1 CPU**. Duas medidas
+tornam a análise viável nesse orçamento:
+
+**Memória constante.** As páginas do PDF são percorridas uma a uma e o cache
+de objetos de cada página é liberado após o uso. Antes, todas as páginas eram
+mantidas em memória e o consumo crescia com o tamanho do documento — um edital
+de 83 páginas chegava a ~850 MB e a instância era encerrada por falta de
+memória. Hoje o pico fica em torno de 110 MB, mesmo em editais de 200+ páginas.
+
+**Processamento fora da requisição.** A análise roda numa thread; a requisição
+apenas enfileira a tarefa e redireciona para uma página de progresso, que
+consulta o estado a cada 2 s e avança sozinha quando termina. Isso evita o
+tempo limite da conexão HTTP em análises de vários minutos — inevitável com
+0.1 CPU — e dá retorno visual ao usuário.
+
+Por isso o serviço roda com **um worker e várias threads**
+(`--workers 1 --threads 8`): as tarefas ficam na memória do processo, e um
+segundo worker não as enxergaria ao responder a consulta de estado.
+
+Se a análise ainda ficar lenta demais para o uso diário, o caminho é o plano
+**Starter (US$ 7/mês)**, que mantém 512 MB mas sobe para 0.5 CPU — cinco vezes
+mais rápido — e elimina a hibernação. Nada no código precisa mudar.

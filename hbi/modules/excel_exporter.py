@@ -14,13 +14,43 @@ from __future__ import annotations
 from pathlib import Path
 
 from openpyxl import load_workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Font, PatternFill
+
+from hbi.config.regras_destaque import trechos_destacados
 
 from hbi.config import settings
 from hbi.models.edital import Edital
 from hbi.utils.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _descricao_destacada(texto: str):
+    """Devolve a descrição com os termos críticos em negrito e vermelho.
+
+    Quando nenhuma regra se aplica — o caso da maioria dos itens — devolve a
+    própria string, para não transformar a planilha inteira em texto formatado
+    sem necessidade.
+    """
+    if not texto:
+        return texto
+    trechos = trechos_destacados(texto)
+    if not trechos:
+        return texto
+
+    destaque = InlineFont(b=True, color="FFFF0000")
+    partes: list = []
+    cursor = 0
+    for ini, fim in trechos:
+        if ini > cursor:
+            partes.append(texto[cursor:ini])
+        partes.append(TextBlock(destaque, texto[ini:fim]))
+        cursor = fim
+    if cursor < len(texto):
+        partes.append(texto[cursor:])
+    return CellRichText(*partes)
 
 
 def _mapa_colunas(ws) -> dict[str, int]:
@@ -102,7 +132,11 @@ def exportar(edital: Edital, destino: str | Path) -> Path:
     for it in edital.itens:
         # dados de entrada
         for campo, col in col_idx.items():
-            ws.cell(row=linha, column=col, value=getattr(it, campo))
+            valor = getattr(it, campo)
+            if campo == "descricao":
+                # termos críticos da especificação saem em negrito e vermelho
+                valor = _descricao_destacada(valor)
+            ws.cell(row=linha, column=col, value=valor)
         # zera defaults numéricos que alimentam as fórmulas (se ainda vazios)
         for c in (c_icms, c_frete, c_margem):
             if c and ws.cell(row=linha, column=c).value is None:

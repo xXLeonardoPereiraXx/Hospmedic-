@@ -320,6 +320,24 @@ O `excel_exporter` parte da planilha-modelo da HospMedic e:
   lote fica registrado à parte);
 - fecha com a linha de **TOTAL** somando as colunas de valores.
 
+### Termos críticos em destaque
+
+Detalhes da especificação que decidem a cotação saem na planilha em **negrito
+e vermelho**, dentro da própria célula de descrição. Cada regra tem um
+gatilho (o produto) e os termos a marcar — o gatilho evita ruído, já que
+"sintética" só interessa em luva, não numa sonda de material sintético:
+
+| Gatilho no item | Termos destacados |
+|---|---|
+| luva | com pó, c/pó, sem pó, s/pó, isento de pó, lubrifica, talcada, sintética |
+| cateter intravenoso periférico, abocath | com/c/ dispositivo de segurança, conforme NR 32 |
+| scalpe, escalpe, scalp | com/c/ dispositivo de segurança, conforme NR 32 |
+| seringa, agulha | com/c/ dispositivo de segurança, conforme NR 32 |
+
+A comparação ignora acento e caixa (`sem pó` = `SEM PO`), e trechos
+sobrepostos viram uma marcação só. Para acrescentar uma regra basta editar
+`hbi/config/regras_destaque.py` — nenhum outro arquivo muda.
+
 As colunas *Marca* e *Reg. Anvisa* seguem manuais (dependem do catálogo
 interno da HospMedic — fora do escopo do MVP).
 

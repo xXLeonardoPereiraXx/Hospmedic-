@@ -13,6 +13,8 @@ import pdfplumber
 
 from hbi.utils.logger import get_logger
 
+from hbi.utils.cancelamento import AnaliseCancelada  # noqa: E402
+
 log = get_logger(__name__)
 
 
@@ -123,7 +125,13 @@ class PdfReader:
             paginas = leitor.pages
             if limite_paginas is not None:
                 paginas = paginas[:limite_paginas]
-            bruto = "\n".join((pg.extract_text() or "") for pg in paginas)
+            from hbi.utils import cancelamento
+
+            partes = []
+            for pg in paginas:
+                cancelamento.checar()  # ponto seguro: troca de página
+                partes.append(pg.extract_text() or "")
+            bruto = "\n".join(partes)
             # O pypdf frequentemente fragmenta o texto, colocando cada palavra
             # (ou o espaço entre elas) em sua própria linha:
             #   "Atestado\n \nde\n \ncapacidade\n \ntécnica"
@@ -141,6 +149,11 @@ class PdfReader:
             # 3) colapsa espaços/tabs repetidos
             t = _re.sub(r"[ \t]+", " ", t)
             return t
+        except AnaliseCancelada:
+            # Cancelamento não é falha de leitura: precisa subir, senão o
+            # pedido do usuário seria engolido e — pior — o fallback abaixo
+            # recomeçaria o trabalho com o extrator lento.
+            raise
         except Exception as exc:  # noqa: BLE001
             # Em caso de PDF problemático, cai para o extrator preciso.
             log.warning("texto_rapido falhou (%s); usando pdfplumber.", exc)

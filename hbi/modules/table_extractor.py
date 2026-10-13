@@ -90,7 +90,16 @@ _LOTE = re.compile(
     r"|^\s*LOTE\s+(\d+)\s*[–\-—]",
     re.I,
 )
-_TOTAL_LINHA = re.compile(r"^\s*TOTAL\s+" + _MONEY + r"\s*$", re.I)
+# Linha de fecho da tabela. Vale tanto o formato curto ("TOTAL  1.234,00")
+# quanto o texto por extenso que muitos editais usam ("VALOR TOTAL ESTIMADO DA
+# LICITAÇÃO: R$ ..."). É o que impede o texto posterior à tabela — observações,
+# modelo de proposta, rodapé — de ser colado no último item.
+_TOTAL_LINHA = re.compile(
+    r"^\s*TOTAL\s+" + _MONEY + r"\s*$"
+    r"|^\s*(?:VALOR\s+)?TOTAL\s+(?:GERAL|ESTIMADO|GLOBAL|DA\s+LICITA[ÇC][ÃA]O)"
+    r"|^\s*OBSERVA[ÇC][ÕO]ES\s*:",
+    re.I,
+)
 
 # Palavras que nomeiam colunas da tabela de itens. O cabeçalho é reconhecido
 # pela densidade delas na linha, e não por um formato fixo: há editais que
@@ -114,6 +123,23 @@ def _eh_cabecalho_tabela(linha: str) -> bool:
 # marcam a reserva por item (padrão ICS/Curitiba e derivados). Serve como
 # fronteira estrutural — o texto que vem depois pertence ao PRÓXIMO item, e
 # sem isso a descrição de um item invade a do vizinho.
+# Início de descrição de item: muitos editais abrem o texto do produto com o
+# código de catálogo seguido do nome ("138951 - PINÇA PROF°. MEDINA..."). Onde
+# esse padrão se repete de forma consistente, ele marca com precisão onde um
+# item termina e o próximo começa — informação que a distância até a âncora
+# não dá quando os blocos têm tamanhos diferentes.
+# Assinatura do layout "quantidade + preço unitário" (sem coluna de total):
+# o último número da linha vem marcado com "R$" e o penúltimo não — porque o
+# penúltimo é a QUANTIDADE, não dinheiro. Ex.:
+#   "1 ABAIXADOR DE LÍNGUA ... PACOTE 4.940,00 R$ 6,11"
+# Ler isso como (unitário, total) produziria quantidade zero e a conferência
+# falharia em todas as linhas, que é exatamente como o erro aparece.
+_SO_ULTIMO_COM_RS = re.compile(
+    r"(?<!R\$)(?<!R\$\s)\b(" + _MONEY + r")\s+R\$\s*(" + _MONEY + r")\s*$"
+)
+
+_INICIO_DESCRICAO = re.compile(r"^\s*\d{4,7}\s*[-–—]\s*[A-Za-zÀ-ú]")
+
 _REGIME_PARTICIPACAO = re.compile(
     r"^\s*(?:EXCLUSIV[OA]|AMPLA|COTA|RESERVAD[OA]|LOTE\s+RESERVADO)\b"
     r".{0,60}?(?:ME[I]?\s*/|ME/EPP|MEI|EPP|PARTICIPA[ÇC][ÃA]O|CONCORR[ÊE]NCIA)",
@@ -124,7 +150,11 @@ _NOISE = re.compile(
     r"(MUNIC[ÍI]PIO|Estado do Paran|ANEXO|^Item\b|^Und\b|^Forne|^\d+\.\d"
     r"|CNPJ|e-mail|Telefone|^Rua |HAVENDO|OBJETO CONSTANTE|EDITAL\."
     r"|CONDI[ÇC][ÕO]ES GERAIS|Registro de Pre|PREFEIT|ADVOGADO|CONTRATANTE"
-    r"|Valor Uni|Valor Total|MÉDIA|PRODUTO|Descrição|P[áa]gina\s*:"
+    r"|^Valor Uni|^Valor Total|^M[ÉE]DIA\b|^PRODUTO\b|^Descri[çc][ãa]o\b"
+    r"|P[áa]gina\s*:"
+    # cabeçalho de tabela quebrado em duas linhas: "ITEM DESCRIÇÃO UND
+    # Quantidade Valor" / "Total Unitário R$"
+    r"|^Total\s+Unit[áa]rio|^Quantidade\s+Valor\b"
     # fragmentos de cabeçalho de tabela quebrado em várias linhas pelo PDF
     # (ex.: "Nome do produto/serviço" vira "produto/se" + "rviço")
     r"|^produto/|^rvi[çc]o\b|^dade\s+m[áa]ximo|^servi[çc]o\b|ARITM[ÉE]TICA"
@@ -163,7 +193,10 @@ def _quantidade_parse(miolo: str) -> float | None:
 
 
 _UNIDADE_RE = re.compile(
-    r"\b(CX|CAIXA|UNID|UND|UNI|UN|PCT|PC|PACOTE|ROLO|RL|LITRO|LT|EMB|FRASCO"
+    # UNIDADE(S) por extenso vem antes das abreviações: sem ela, uma descrição
+    # que cite "750 ML" no meio do texto teria o ML tomado como a unidade da
+    # tabela, truncando tudo o que vem depois.
+    r"\b(UNIDADES?|EMBALAGE(?:M|NS)|KITS?|CX|CAIXA|UNID|UND|UNI|UN|PCT|PC|PACOTE|ROLO|RL|LITRO|LT|EMB|FRASCO"
     r"|FRS|FR|PAR|KG|ML|MT|CONJ|BOLSA|GAL[ÃA]O|GL|BOMBA|AMPOLA|AMP|TB|DZ"
     # PEÇA: unidade padrão das fichas por lote da SESA/Curitiba.
     r"|PE[ÇC]AS?|PÇ"
@@ -211,7 +244,19 @@ def _parse_miolo(miolo: str) -> tuple[str, str]:
     # logo antes da quantidade). Usar o primeiro quebraria descrições de
     # produtos que COMEÇAM com palavra-unidade (ex.: "BOLSA RESGATE ... UN 1").
     achados_unidade = list(_UNIDADE_RE.finditer(m))
-    um = achados_unidade[-1] if achados_unidade else None
+    # A unidade de fornecimento é a coluna seguinte à descrição: no texto
+    # linearizado ela cai no FIM do miolo. Palavras iguais que aparecem no meio
+    # da frase ("...para EMBALAGEM lacrada...", "...750 ML...") são parte da
+    # descrição e não podem truncá-la — por isso a preferência é por um achado
+    # que termine junto com o miolo; só quando não há nenhum assim é que vale
+    # a última ocorrência, para não regredir layouts com sobras após a unidade.
+    um = None
+    for achado in reversed(achados_unidade):
+        if len(m) - achado.end() <= 3:
+            um = achado
+            break
+    if um is None and achados_unidade:
+        um = achados_unidade[-1]
     if um:
         desc = m[: um.start()].strip()
         unidade = um.group(1)
@@ -292,15 +337,78 @@ def _eh_mobiliario(linha: str, mobiliario: set[str]) -> bool:
     return re.sub(r"\d+", "#", linha.strip()) in mobiliario
 
 
+def _bordas_de_linha(pagina) -> list[float]:
+    """Alturas das bordas que separam as LINHAS da tabela de itens.
+
+    Uma tabela desenha muitos traços: bordas de célula, de coluna, de moldura.
+    Só as que **começam na margem esquerda da tabela** atravessam a linha
+    inteira e, por isso, marcam onde um item termina e o próximo começa. As
+    demais são internas e dividiriam a descrição no meio.
+
+    Devolve lista vazia quando a página não tem grade — aí valem as outras
+    regras de fronteira.
+    """
+    try:
+        bordas = pagina.horizontal_edges
+    except Exception:  # noqa: BLE001
+        return []
+    if len(bordas) < 4:
+        return []
+    x_min = min(b["x0"] for b in bordas)
+    ys = sorted({round(float(b["top"]), 1)
+                 for b in bordas if abs(b["x0"] - x_min) < 3})
+    limpos: list[float] = []
+    for y in ys:
+        if not limpos or y - limpos[-1] > 2:   # junta traços duplicados
+            limpos.append(y)
+    return limpos
+
+
+def _marcar_por_bordas(tops: list[float], cortes: list[float]) -> list[bool]:
+    """Marca as linhas de texto que abrem uma nova linha da tabela."""
+    if not cortes or not tops:
+        return []
+    import bisect
+
+    faixa_anterior = None
+    marcas: list[bool] = []
+    for top in tops:
+        faixa = bisect.bisect_right(cortes, top + 1)
+        marcas.append(faixa_anterior is not None and faixa != faixa_anterior)
+        faixa_anterior = faixa
+    return marcas
+
+
 def _coletar_linhas(reader, pagina_inicio: int, pagina_fim: int | None) -> list[str]:
     from hbi.modules.pdf_reader import sem_marca_dagua
 
     paginas = reader.paginas_indexadas(pagina_inicio, pagina_fim)
 
+    from hbi.utils import cancelamento
+
     por_pagina: list[list[str]] = []
+    tops_pagina: list[list[bool]] = []
     for pagina in paginas:
-        texto = sem_marca_dagua(pagina).extract_text() or ""
-        por_pagina.append([ln.strip() for ln in texto.split("\n")])
+        # Ponto seguro de cancelamento: nada pela metade entre uma página e
+        # a próxima, e é aqui que o tempo é gasto.
+        cancelamento.checar()
+        limpa = sem_marca_dagua(pagina)
+        # Além do texto, guarda a posição vertical de cada linha. Em tabelas
+        # onde a linha de valores fica NO MEIO do bloco (descrição acima e
+        # abaixo dela), a distância até a âncora não diz a que item a linha
+        # pertence — mas o espaçamento diz: dentro de um item o entrelinha é
+        # regular, e entre um item e o seguinte há um salto maior.
+        try:
+            linhas_pos = limpa.extract_text_lines()
+            por_pagina.append([ln["text"].strip() for ln in linhas_pos])
+            cortes = _bordas_de_linha(pagina)
+            tops_pagina.append(
+                _marcar_por_bordas([float(l["top"]) for l in linhas_pos], cortes)
+            )
+        except Exception:  # noqa: BLE001 — versões sem extract_text_lines
+            texto = limpa.extract_text() or ""
+            por_pagina.append([ln.strip() for ln in texto.split("\n")])
+            tops_pagina.append([])
         # Libera o cache de objetos da página (chars, linhas, retângulos).
         # Sem isso o pdfplumber retém tudo até o fim do documento e o consumo
         # cresce linearmente com o número de páginas — o que estourava o
@@ -317,10 +425,12 @@ def _coletar_linhas(reader, pagina_inicio: int, pagina_fim: int | None) -> list[
     linhas: list[str] = []
     for offset, linhas_pg in enumerate(por_pagina):
         pagina = pagina_inicio + offset + 1  # rastreabilidade (1-based)
-        for ln in linhas_pg:
+        marcas = tops_pagina[offset] if offset < len(tops_pagina) else []
+        novos = {i for i, m in enumerate(marcas) if m}
+        for idx_pg, ln in enumerate(linhas_pg):
             if _eh_mobiliario(ln, mobiliario):
                 continue
-            linhas.append((ln, pagina))
+            linhas.append((ln, pagina, idx_pg in novos))
     return linhas
 
 
@@ -346,6 +456,15 @@ def extrair_itens(
     """
     linhas_pag = _coletar_linhas(reader, pagina_inicio, pagina_fim)
     linhas = [lp[0] for lp in linhas_pag]
+    # Linhas que abrem um novo item segundo o espaçamento vertical da página.
+    # Ausente quando as linhas vêm sem posição (ex.: chamadas de teste).
+    # A primeira linha de cada página nunca conta como início de item: a borda
+    # ali é o topo da tabela, e o texto costuma ser a continuação do item que
+    # transbordou da página anterior.
+    inicios_espaco = {
+        i for i, lp in enumerate(linhas_pag)
+        if len(lp) > 2 and lp[2] and (i == 0 or lp[1] == linhas_pag[i - 1][1])
+    }
     paginas = [lp[1] for lp in linhas_pag]
 
     # 1) âncoras, com contagem incremental sensível a lotes.
@@ -361,6 +480,7 @@ def extrair_itens(
     #    rejeitados para não capturar números espúrios (datas, códigos).
     anchors = []  # (idx, num, miolo, vunit, vtot, pagina, lote)
     esperado = 1
+    linhas_qtd_preco = 0
     lote_atual: int | None = None
     consumidas_invertido: set[int] = set()  # linhas já usadas por âncora invertida
     for idx, ln in enumerate(linhas):
@@ -467,6 +587,8 @@ def extrair_itens(
                  _to_float(m.group(3)), _to_float(m.group(4)),
                  paginas[idx], lote_atual)
             )
+            if _SO_ULTIMO_COM_RS.search(ln):
+                linhas_qtd_preco += 1
             esperado = num + 1
 
     if not anchors:
@@ -489,10 +611,47 @@ def extrair_itens(
         or _REGIME_PARTICIPACAO.match(ln)
     }
 
+    # Inícios de descrição só valem como corte quando o padrão se repete o
+    # bastante para ser a estrutura do documento, e não uma coincidência: um
+    # código solto no meio de um texto não pode partir a descrição em duas.
+    inicios_bloco = {
+        i for i, ln in enumerate(linhas) if _INICIO_DESCRICAO.match(ln)
+    }
+    if len(inicios_bloco) < max(2, int(len(anchors) * 0.6)):
+        inicios_bloco = set()
+    else:
+        log.info("Início de descrição detectado em %d linhas (corte de bloco).",
+                 len(inicios_bloco))
+
+    # As bordas da tabela são evidência independente do texto e valem mesmo
+    # sem marcador textual — que é justamente o caso em que a âncora fica no
+    # meio do bloco e a proximidade sozinha erra o dono da linha.
+    # Salvaguarda: em alguns PDFs a grade tem uma borda por LINHA DE TEXTO,
+    # não por item. Nesse caso os cortes picotariam cada descrição em pedaços.
+    # Um conjunto de cortes coerente tem cardinalidade próxima à de itens —
+    # bem mais que isso denuncia grade por linha, e aí a evidência é
+    # descartada em favor das outras regras.
+    if inicios_espaco and len(inicios_espaco) <= len(anchors) * 1.5:
+        inicios_bloco = inicios_bloco | inicios_espaco
+        log.info("Cortes por borda de tabela: %d.", len(inicios_espaco))
+    elif inicios_espaco:
+        log.info("Bordas de tabela ignoradas (%d cortes para %d itens: grade "
+                 "por linha de texto).", len(inicios_espaco), len(anchors))
+
     def _mesma_secao(a: int, b: int) -> bool:
-        """True se não há fronteira estrutural entre as linhas ``a`` e ``b``."""
+        """True se ``a`` (âncora) e ``b`` (linha) pertencem ao mesmo item.
+
+        Duas coisas separam: fronteiras estruturais (cabeçalho, TOTAL, lote,
+        regime) e o início de uma nova descrição. A diferença é sutil: a
+        fronteira fica ENTRE os dois blocos e não pertence a nenhum, enquanto
+        o início de descrição É a primeira linha do bloco novo — por isso ele
+        entra na comparação com ``<=`` do lado da linha.
+        """
         ini, fim = (a, b) if a < b else (b, a)
-        return not any(f for f in fronteiras if ini < f < fim)
+        if any(f for f in fronteiras if ini < f < fim):
+            return False
+        # um corte em c joga tudo a partir de c para o bloco seguinte
+        return not any(c for c in inicios_bloco if ini < c <= fim)
 
     # 3) Direção da descrição — varia conforme o layout do edital.
     #    Quando a própria linha-âncora já abre a descrição (layout compacto,
@@ -554,17 +713,31 @@ def extrair_itens(
             desc[bk].append((i, ln))
 
     # 4) monta os itens
+    #
+    # Layout "quantidade + preço unitário": a tabela não traz coluna de total,
+    # e os dois últimos números da linha são a QUANTIDADE e o PREÇO. Só é
+    # adotado quando a assinatura aparece na ampla maioria das linhas — um
+    # "R$" solto numa linha isolada não pode mudar a leitura do edital todo.
+    modo_qtd_preco = linhas_qtd_preco >= max(3, len(anchors) * 0.7)
+    if modo_qtd_preco:
+        log.info("Layout com coluna de quantidade e preço unitário (sem total): "
+                 "%d de %d linhas.", linhas_qtd_preco, len(anchors))
+
     usa_lotes = any(a[6] is not None for a in anchors)
     itens: list[ItemEdital] = []
     for k, (idx, num, miolo, vunit, vtot, pagina, lote) in enumerate(anchors):
-        # quantidade: derivada de total/unit; parse do miolo como verificação
-        q_parse = _quantidade_parse(miolo)
-        q_deriv = None
-        if vunit > 0:
-            r = vtot / vunit
-            if abs(r - round(r)) < 0.01:
-                q_deriv = float(round(r))
-        quantidade = q_deriv if q_deriv is not None else (q_parse or 0.0)
+        if modo_qtd_preco:
+            # o penúltimo número era a quantidade; o último, o preço unitário
+            quantidade, vunit, vtot = vunit, vtot, round(vunit * vtot, 2)
+        else:
+            # quantidade: derivada de total/unit; parse do miolo como verificação
+            q_parse = _quantidade_parse(miolo)
+            q_deriv = None
+            if vunit > 0:
+                r = vtot / vunit
+                if abs(r - round(r)) < 0.01:
+                    q_deriv = float(round(r))
+            quantidade = q_deriv if q_deriv is not None else (q_parse or 0.0)
 
         # descrição/unidade a partir do próprio miolo (layouts compactos)
         desc_miolo, unid_miolo = _parse_miolo(miolo)

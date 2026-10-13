@@ -39,6 +39,11 @@
           Editais longos levam alguns minutos. Pode deixar esta aba aberta —
           a página avança sozinha quando terminar.
         </p>
+        <div class="acoes-progresso">
+          <button type="button" id="btn-cancelar" class="btn-secundario">
+            Cancelar análise
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -60,7 +65,7 @@
         const d = await r.json();
         falhas = 0;
         if (d.etapa) etapa.textContent = d.etapa;
-        if (d.estado === 'pronto' || d.estado === 'erro') {
+        if (d.estado === 'pronto' || d.estado === 'erro' || d.estado === 'cancelado') {
           window.location = `/resultado/${id}`;
           return;
         }
@@ -74,6 +79,15 @@
       }
       setTimeout(consultar, 2000);
     }
+    const btn = document.getElementById('btn-cancelar');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Cancelando…';
+      try {
+        await fetch(`/cancelar/${id}`, { method: 'POST' });
+      } catch (e) { /* a consulta de estado detecta o fim de qualquer forma */ }
+    });
+
     consultar();
   </script>
 </body>

@@ -30,6 +30,7 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hbi.services import pipeline, report  # noqa: E402
+from hbi.utils import cancelamento  # noqa: E402
 from webapp import database  # noqa: E402
 
 app = Flask(__name__)
@@ -119,6 +120,13 @@ def _executar_analise(tarefa_id: str, pdf_path: Path, nome: str,
             if tarefa_id in TAREFAS:
                 TAREFAS[tarefa_id]["etapa"] = msg
 
+    # Guarda a thread desta análise para que o pedido de cancelamento saiba
+    # qual trabalho interromper.
+    tid = threading.get_ident()
+    with TAREFAS_LOCK:
+        if tarefa_id in TAREFAS:
+            TAREFAS[tarefa_id]["thread_id"] = tid
+
     try:
         if modo == "completo":
             _passo("Lendo o PDF e validando critérios…")
@@ -151,11 +159,16 @@ def _executar_analise(tarefa_id: str, pdf_path: Path, nome: str,
             )
         with TAREFAS_LOCK:
             TAREFAS[tarefa_id].update(estado="pronto", resultado=resultado)
+    except cancelamento.AnaliseCancelada:
+        app.logger.info("Análise %s cancelada pelo usuário.", tarefa_id)
+        with TAREFAS_LOCK:
+            TAREFAS[tarefa_id].update(estado="cancelado")
     except Exception as exc:  # noqa: BLE001
         app.logger.exception("Falha ao processar edital")
         with TAREFAS_LOCK:
             TAREFAS[tarefa_id].update(estado="erro", erro=str(exc))
     finally:
+        cancelamento.limpar(tid)
         try:
             pdf_path.unlink(missing_ok=True)
         except OSError:
@@ -231,6 +244,27 @@ def estado(tarefa_id: str):
         })
 
 
+@app.route("/cancelar/<tarefa_id>", methods=["POST"])
+@login_obrigatorio
+def cancelar(tarefa_id: str):
+    """Interrompe uma análise em andamento.
+
+    O trabalho não é morto à força: a thread verifica o pedido na troca de
+    página do PDF e encerra sozinha, o que evita deixar arquivo ou estrutura
+    pela metade. Na prática a interrupção acontece em menos de uma página.
+    """
+    with TAREFAS_LOCK:
+        t = TAREFAS.get(tarefa_id)
+        if not t or t.get("usuario") != session["usuario"]:
+            return jsonify({"ok": False}), 404
+        tid = t.get("thread_id")
+        if t["estado"] == "processando":
+            t["etapa"] = "Cancelando…"
+    if tid:
+        cancelamento.marcar_cancelamento(tid)
+    return jsonify({"ok": True})
+
+
 @app.route("/resultado/<tarefa_id>")
 @login_obrigatorio
 def resultado(tarefa_id: str):
@@ -238,6 +272,9 @@ def resultado(tarefa_id: str):
         t = TAREFAS.get(tarefa_id)
         if not t or t.get("usuario") != session["usuario"]:
             flash("Análise não encontrada. Envie o edital novamente.", "erro")
+            return redirect(url_for("index"))
+        if t["estado"] == "cancelado":
+            flash("Análise cancelada.", "aviso")
             return redirect(url_for("index"))
         if t["estado"] == "erro":
             flash(f"Erro ao processar o edital: {t.get('erro')}", "erro")

@@ -262,6 +262,73 @@ def test_fronteira_regime_participacao():
     print("ok  test_fronteira_regime_participacao")
 
 
+
+def test_cancelamento_nao_e_engolido():
+    """Cancelamento sobe pelas camadas: nunca vira 'falha de leitura'."""
+    import threading
+    from hbi.utils import cancelamento
+
+    tid = threading.get_ident()
+    cancelamento.marcar_cancelamento(tid)
+    try:
+        assert cancelamento.cancelada(tid)
+        levantou = False
+        try:
+            cancelamento.checar()
+        except cancelamento.AnaliseCancelada:
+            levantou = True
+        assert levantou, "checar() deveria levantar AnaliseCancelada"
+    finally:
+        cancelamento.limpar(tid)
+
+    assert not cancelamento.cancelada(tid), "limpar() deveria remover o registro"
+
+    # a excecao NAO pode ser subclasse de nada que o pipeline capture como
+    # falha generica de leitura — senao o pedido do usuario seria engolido
+    # e o trabalho recomecaria no extrator lento.
+    import inspect
+    from hbi.modules import pdf_reader
+    fonte = inspect.getsource(pdf_reader.PdfReader.texto_rapido)
+    assert "except AnaliseCancelada" in fonte, (
+        "texto_rapido precisa re-lancar o cancelamento antes do except geral"
+    )
+    print("ok  test_cancelamento_nao_e_engolido")
+
+
+
+def test_regras_destaque():
+    """Termos criticos destacados so quando o produto correspondente aparece."""
+    from hbi.config.regras_destaque import trechos_destacados as T
+
+    def marcados(txt):
+        return [txt[a:b].upper() for a, b in T(txt)]
+
+    # luva: presenca de po / material
+    d = "LUVA DE PROCEDIMENTO EM LATEX, NAO ESTERIL, LUBRIFICADA COM PO"
+    assert "LUBRIFICA" in marcados(d) and "COM PO" in marcados(d), marcados(d)
+    assert "SEM PO" in marcados("LUVA NITRILICA SEM PO, TAMANHO G")
+    assert "S/PO" in marcados("LUVA CIRURGICA S/PO ESTERIL")
+    assert marcados("LUVA NITRILICA SINTETICA") == ["SINTETICA"]
+
+    # cateter / scalpe / seringa / agulha: NR 32
+    for produto in ("CATETER INTRAVENOSO PERIFERICO 20G", "ABOCATH 22G",
+                    "SCALPE 23G", "ESCALPE 21G", "SERINGA 5ML", "AGULHA 25X7"):
+        d = produto + " COM DISPOSITIVO DE SEGURANCA CONFORME NR 32"
+        m = marcados(d)
+        assert "COM DISPOSITIVO DE SEGURANCA" in m, (produto, m)
+        assert "CONFORME NR 32" in m, (produto, m)
+
+    # o gatilho evita ruido: termo presente, produto ausente -> nao destaca
+    assert marcados("GAZE HIDROFILA, EMBALAGEM SEM PO") == []
+    assert marcados("SONDA EM MATERIAL SINTETICO") == []
+    assert marcados("EQUIPO MACROGOTAS") == []
+
+    # trechos sobrepostos viram um so intervalo (sem marcacao duplicada)
+    d = "SERINGA COM DISPOSITIVO DE SEGURANCA"
+    assert len(T(d)) == 1, T(d)
+    print("ok  test_regras_destaque")
+
+
 if __name__ == "__main__":
     test_conversao_brl()
     test_confere_total()
@@ -274,4 +341,6 @@ if __name__ == "__main__":
     test_mobiliario_de_pagina()
     test_noise_nao_apaga_descricao()
     test_fronteira_regime_participacao()
+    test_cancelamento_nao_e_engolido()
+    test_regras_destaque()
     print("\nTodos os testes de fumaça passaram.")

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HBI — Resultado do lote</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  <div class="topo">
+    <div class="marca">
+      <img src="{{ url_for('static', filename='hospmedic-simbolo-claro.png') }}"
+           alt="HospMedic — Produtos Hospitalares">
+      <span class="divisor"></span>
+      <span class="produto">
+        <span class="sigla">HBI</span>
+        <span class="full">HospMedic · Bid Intelligence</span>
+      </span>
+    </div>
+    <div class="sessao">
+      <span>{{ usuario }}</span>
+      <a href="{{ url_for('logout') }}">Sair</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="cartao">
+      <h2>Resultado do lote</h2>
+      <p class="sub">
+        {{ itens|length }} editais · {{ "Análise completa" if modo == "completo" else "Validação de critérios" }}
+        {% if criado_em %} · analisado em {{ criado_em[:10] }}{% endif %}
+      </p>
+      {% set erros = itens|selectattr("ok", "equalto", false)|list %}
+      {% if erros %}
+      <div class="aviso">{{ erros|length }} edital(is) não puderam ser analisados; os demais estão no arquivo .zip.</div>
+      {% endif %}
+      <div class="acoes">
+        <a class="btn" href="{{ url_for('arquivo', analise_id=analise_id, tipo='lote') }}">Baixar tudo (.zip)</a>
+        <a class="btn secundario" href="{{ url_for('index') }}">Analisar outros editais</a>
+      </div>
+      <p class="sub">O .zip traz, para cada edital, a planilha (análise completa), o espelho em PDF
+        e o relatório, com o nome do arquivo enviado, além de um resumo.txt.</p>
+    </div>
+
+    <div class="cartao">
+      <h2>Editais</h2>
+      <p class="sub">Clique em um edital para ver o relatório e baixar ou imprimir os arquivos dele.</p>
+      <table class="hist">
+        <thead>
+          <tr><th>Edital</th><th>Veredito</th>
+            {% if modo == "completo" %}<th class="num">Itens</th><th class="num">Soma (R$)</th><th>Extração</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in itens %}
+          {% if r.ok %}
+          <tr class="clicavel" onclick="location.href='{{ url_for('historico', analise_id=r.analise_id) }}'">
+            <td><a href="{{ url_for('historico', analise_id=r.analise_id) }}">{{ r.arquivo }}</a></td>
+            <td><span class="selo {{ r.veredito }}">{{ r.veredito.replace("_","-") }}</span></td>
+            {% if modo == "completo" %}
+            <td class="num">{{ r.itens if r.itens is not none else "—" }}</td>
+            <td class="num">{{ "%.2f"|format(r.soma) if r.soma is not none else "—" }}</td>
+            <td>{% if r.diag %}<span class="selo {{ 'go' if r.diag.gate == 'CONFIAVEL' else 'revisar' }}">{{ r.diag.gate }}</span>{% else %}—{% endif %}</td>
+            {% endif %}
+          </tr>
+          {% else %}
+          <tr>
+            <td>{{ r.arquivo }}</td>
+            <td colspan="{{ 4 if modo == 'completo' else 1 }}"><span class="selo no_go">erro</span> {{ r.erro }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="rodape">
+    <div class="barra"></div>
+    HospMedic — Produtos Hospitalares · HBI Bid Intelligence
+  </div>
+
+</body>
+</html>

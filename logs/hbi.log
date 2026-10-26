@@ -1,10 +1,35 @@
-07:32:42 | INFO    | hbi.services.pipeline | Validando edital (somente critérios): 6b11488f_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf
-07:32:43 | INFO    | hbi.modules.pdf_reader | PDF aberto: 6b11488f_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf (111 páginas)
-07:32:47 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
-07:33:31 | INFO    | hbi.services.pipeline | Processando edital: 25e94782_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf
-07:33:31 | INFO    | hbi.modules.pdf_reader | PDF aberto: 25e94782_17-08-2026_-_09_hrs_-_PE_18-2026_-_Campo_do_Tenente_PR_Portal_BLL.pdf (111 páginas)
-07:33:35 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
-07:33:47 | INFO    | hbi.modules.table_extractor | Cabeçalho/rodapé de página detectado: 1 linhas ignoradas.
-07:33:47 | INFO    | hbi.modules.table_extractor | Itens extraídos: 39 (âncora genérica, edital por lote)
-07:33:47 | INFO    | hbi.modules.spec_extractor | Nenhum descritivo técnico separado encontrado.
-07:34:18 | INFO    | hbi.modules.excel_exporter | Planilha gerada: 25e94782_resultado.xlsx (39 itens)
+22:16:46 | INFO    | hbi.services.pipeline | Processando edital: 00_21-10-2026_-_09_30_hrs_-_PE_78-2026_-_Pien_PR_Portal_PNCP_.pdf
+22:16:46 | INFO    | hbi.modules.pdf_reader | PDF aberto: 00_21-10-2026_-_09_30_hrs_-_PE_78-2026_-_Pien_PR_Portal_PNCP_.pdf (73 páginas)
+22:16:50 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
+22:16:58 | INFO    | hbi.modules.table_extractor | Cabeçalho/rodapé de página detectado: 2 linhas ignoradas.
+22:16:58 | INFO    | hbi.modules.table_extractor | Início de descrição detectado em 0 linhas (corte de bloco).
+22:16:58 | INFO    | hbi.modules.table_extractor | Itens extraídos: 176 (âncora genérica)
+22:17:08 | INFO    | hbi.modules.grid_extractor | Grade: 178 linhas de item reconhecidas.
+22:17:08 | INFO    | hbi.modules.grid_extractor | Itens extraídos: 179 (células da tabela)
+22:17:08 | INFO    | hbi.modules.table_extractor | Leitura por grade adotada: 179 itens (100% de 1..179) contra 176 (98%) por âncoras.
+22:17:08 | INFO    | hbi.modules.spec_extractor | Nenhum descritivo técnico separado encontrado.
+22:17:47 | INFO    | hbi.modules.excel_exporter | Planilha gerada: planilha.xlsx (179 itens)
+22:20:09 | INFO    | hbi.services.pipeline | Processando edital: 00_28-10-2026_-_07_30_hrs_-_PE_50-2026_-_Iguaracu_PR_Portal_BLL.pdf
+22:20:09 | INFO    | hbi.modules.pdf_reader | PDF aberto: 00_28-10-2026_-_07_30_hrs_-_PE_50-2026_-_Iguaracu_PR_Portal_BLL.pdf (157 páginas)
+22:20:16 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
+22:20:43 | INFO    | hbi.modules.table_extractor | Cabeçalho/rodapé de página detectado: 2 linhas ignoradas.
+22:20:44 | INFO    | hbi.modules.table_extractor | Fim de descrição pelo código de catálogo: 786 cortes.
+22:20:48 | INFO    | hbi.modules.table_extractor | Cortes por borda de tabela: 487.
+22:20:48 | INFO    | hbi.modules.table_extractor | Linhas órfãs reatadas ao item anterior: 167.
+22:20:48 | INFO    | hbi.modules.table_extractor | Itens extraídos: 295 (âncora genérica)
+22:20:49 | INFO    | hbi.modules.spec_extractor | Descritivos técnicos extraídos: 6 (indexados por item)
+22:20:49 | INFO    | hbi.modules.spec_extractor | Join de descritivos: 6 itens enriquecidos, 289 sem descritivo, 0 órfãos
+22:21:29 | INFO    | hbi.modules.excel_exporter | Planilha gerada: planilha.xlsx (295 itens)
+22:26:16 | INFO    | hbi.services.pipeline | Processando edital: 00_29-10-2026_-_07_hrs_-_PE_34-2026_-_Porto_Amazonas_PR_Portal_BLL_.pdf
+22:26:16 | INFO    | hbi.modules.pdf_reader | PDF aberto: 00_29-10-2026_-_07_hrs_-_PE_34-2026_-_Porto_Amazonas_PR_Portal_BLL_.pdf (173 páginas)
+22:26:31 | INFO    | hbi.modules.edital_validator | Validação: veredito=revisar (39 critérios)
+22:27:07 | INFO    | hbi.modules.table_extractor | Cabeçalho/rodapé de página detectado: 6 linhas ignoradas.
+22:27:08 | INFO    | hbi.modules.table_extractor | Início de descrição detectado em 0 linhas (corte de bloco).
+22:27:08 | INFO    | hbi.modules.table_extractor | Bordas de tabela ignoradas (1396 cortes para 335 itens: grade por linha de texto).
+22:27:08 | INFO    | hbi.modules.table_extractor | Itens extraídos: 335 (âncora genérica)
+22:27:58 | INFO    | hbi.modules.grid_extractor | Grade: 365 linhas de item reconhecidas.
+22:27:59 | INFO    | hbi.modules.grid_extractor | Itens repetidos em outra tabela: 18 descartados.
+22:27:59 | INFO    | hbi.modules.grid_extractor | Itens extraídos: 7 (células da tabela)
+22:27:59 | INFO    | hbi.modules.table_extractor | Leitura por âncoras mantida: 335 itens (92% de 1..365); a grade reconheceu 7.
+22:27:59 | INFO    | hbi.modules.spec_extractor | Nenhum descritivo técnico separado encontrado.
+22:28:41 | INFO    | hbi.modules.excel_exporter | Planilha gerada: planilha.xlsx (335 itens)

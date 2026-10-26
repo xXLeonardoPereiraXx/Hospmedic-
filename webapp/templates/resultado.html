@@ -58,10 +58,21 @@
       </div>
       {% endif %}
 
-      {% if download_token %}
-      <a class="btn" href="{{ url_for('download', token=download_token) }}">⬇ Baixar planilha preenchida</a>
-      {% endif %}
-      <a class="btn secundario" href="{{ url_for('index') }}">Analisar outro edital</a>
+      {% if criado_em %}<p class="sub">Análise de {{ criado_em[:10] }} (reaberta do histórico)</p>{% endif %}
+      <div class="acoes">
+        {% if arquivos.planilha %}
+        <a class="btn" href="{{ url_for('arquivo', analise_id=analise_id, tipo='planilha') }}">Baixar planilha</a>
+        {% endif %}
+        {% if arquivos.espelho %}
+        <a class="btn" href="{{ url_for('arquivo', analise_id=analise_id, tipo='espelho') }}">Baixar espelho (PDF)</a>
+        <button class="btn secundario" type="button"
+                onclick="imprimir('{{ url_for('arquivo', analise_id=analise_id, tipo='espelho', abrir=1) }}')">Imprimir espelho</button>
+        {% endif %}
+        {% if arquivos.relatorio %}
+        <a class="btn secundario" href="{{ url_for('arquivo', analise_id=analise_id, tipo='relatorio') }}">Relatório (.txt)</a>
+        {% endif %}
+        <a class="btn secundario" href="{{ url_for('index') }}">Analisar outro edital</a>
+      </div>
     </div>
 
     <div class="cartao">
@@ -75,5 +86,20 @@
     HospMedic — Produtos Hospitalares · HBI Bid Intelligence
   </div>
 
+  <script>
+    // Abre o PDF num quadro invisível e chama a impressão do navegador. Se o
+    // navegador não permitir imprimir pelo quadro, o PDF abre numa aba, de
+    // onde se imprime pelo próprio visualizador.
+    function imprimir(url) {
+      const f = document.createElement('iframe');
+      f.style.position = 'fixed'; f.style.width = '0'; f.style.height = '0'; f.style.border = '0';
+      f.src = url;
+      f.onload = () => {
+        try { f.contentWindow.focus(); f.contentWindow.print(); }
+        catch (e) { window.open(url, '_blank'); }
+      };
+      document.body.appendChild(f);
+    }
+  </script>
 </body>
 </html>

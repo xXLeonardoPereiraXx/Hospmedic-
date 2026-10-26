@@ -42,12 +42,13 @@
 
       <form method="POST" action="{{ url_for('analisar') }}" enctype="multipart/form-data">
         <div class="campo">
-          <label>Arquivo do edital (PDF)</label>
+          <label>Edital (PDF), vários editais ou um .zip</label>
           <div class="dropzone" id="dropzone">
             <div class="icone">⬆</div>
-            <div class="dz-texto">Clique para selecionar ou arraste o PDF aqui</div>
+            <div class="dz-texto">Clique para selecionar ou arraste aqui um PDF, vários PDFs ou um .zip</div>
             <div class="dz-arquivo" id="dz-arquivo"></div>
-            <input type="file" id="edital" name="edital" accept="application/pdf" required>
+            <input type="file" id="edital" name="edital" multiple required
+                   accept=".pdf,.zip,application/pdf,application/zip">
           </div>
         </div>
 
@@ -69,13 +70,13 @@
           </div>
         </div>
 
-        <button class="btn bloco" type="submit">Analisar edital</button>
+        <button class="btn bloco" type="submit" id="btn-enviar">Analisar edital</button>
       </form>
     </div>
 
     <div class="cartao">
       <h2>Análises recentes</h2>
-      <p class="sub">Suas últimas verificações neste serviço.</p>
+      <p class="sub">Suas últimas verificações. Clique em uma linha para reabrir o resultado e baixar os arquivos.</p>
       <table class="hist">
         <thead>
           <tr>
@@ -85,9 +86,9 @@
         </thead>
         <tbody>
           {% for a in historico %}
-          <tr>
-            <td>{{ a.arquivo }}</td>
-            <td>{{ "Completa" if a.modo == "completo" else "Validação" }}</td>
+          <tr class="clicavel" onclick="location.href='{{ url_for('historico', analise_id=a.id) }}'">
+            <td><a href="{{ url_for('historico', analise_id=a.id) }}">{{ a.arquivo }}</a></td>
+            <td>{{ {"completo": "Completa", "validacao": "Validação", "lote": "Lote"}.get(a.modo, a.modo) }}</td>
             <td>
               {% if a.veredito %}
                 <span class="selo {{ a.veredito }}">{{ a.veredito.replace("_","-") }}</span>
@@ -115,9 +116,16 @@
     const input = document.getElementById('edital');
     const nome = document.getElementById('dz-arquivo');
     dz.addEventListener('click', () => input.click());
-    input.addEventListener('change', () => {
-      nome.textContent = input.files.length ? input.files[0].name : '';
-    });
+    const btn = document.getElementById('btn-enviar');
+    function mostrar() {
+      const n = input.files.length;
+      const zip = [...input.files].some(f => f.name.toLowerCase().endsWith('.zip'));
+      if (!n) { nome.textContent = ''; btn.textContent = 'Analisar edital'; return; }
+      nome.textContent = n === 1 ? input.files[0].name
+                                 : `${n} arquivos: ${[...input.files].map(f => f.name).join(', ')}`;
+      btn.textContent = (n > 1 || zip) ? 'Analisar editais' : 'Analisar edital';
+    }
+    input.addEventListener('change', mostrar);
     ['dragover','dragenter'].forEach(ev =>
       dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('ativo'); }));
     ['dragleave','drop'].forEach(ev =>
@@ -125,7 +133,7 @@
     dz.addEventListener('drop', e => {
       if (e.dataTransfer.files.length) {
         input.files = e.dataTransfer.files;
-        nome.textContent = input.files[0].name;
+        mostrar();
       }
     });
   </script>

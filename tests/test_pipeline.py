@@ -329,6 +329,190 @@ def test_regras_destaque():
     print("ok  test_regras_destaque")
 
 
+
+def test_escolha_de_estrategia():
+    """A leitura por grade so e adotada quando cobre mais da sequencia."""
+    from hbi.modules import table_extractor as te
+    from hbi.models.edital import ItemEdital
+
+    def itens(nums):
+        return [ItemEdital(item=n, descricao="x" * 30, unidade="UN", quantidade=1,
+                           valor_estimado=2.0, valor_total=2.0, pagina=1)
+                for n in nums]
+
+    # sequencia completa -> nem tenta a grade (e por isso aceita caminho None)
+    assert abs(te._completude(itens(range(1, 51))) - 1.0) < 1e-9
+    # buracos reduzem a cobertura proporcionalmente
+    assert abs(te._completude(itens([1, 2, 3, 7, 8, 9, 10])) - 0.7) < 1e-9
+    assert te._completude([]) == 0.0
+    print("ok  test_escolha_de_estrategia")
+
+
+
+def test_leitura_do_miolo_v17():
+    """Formatos de linha de item vistos nos editais da v17."""
+    from hbi.modules.table_extractor import _parse_miolo as f
+    casos = [
+        # unidade antes da descricao (Guarapuava) - nome do produto preservado
+        ("1 4755 PCT CATMAT 481797 - LENCOL", "CATMAT 481797 - LENCOL"),
+        # "NAO" faz parte da descricao: nao pode inverter o sentido do produto
+        ("1 30 CR CATMAT 411291 - BATERIA NAO", "CATMAT 411291 - BATERIA NAO"),
+        # unidade fora do vocabulario ("M" de metro), descricao aberta por CATMAT
+        ("1 127 M CATMAT 460728 - TUBO HOSPITALAR -", "CATMAT 460728 - TUBO HOSPITALAR -"),
+        # unidade | quantidade | descricao (Iguacu)
+        ("UN 20 SONDA ENDOTRAQUEAL DE PVC N 2,0 SEM BALAO", "SONDA ENDOTRAQUEAL DE PVC N 2,0 SEM BALAO"),
+        ("UN 100 CATETER OXIGENOTERAPIA PEDIATRICO - UNIDADE", "CATETER OXIGENOTERAPIA PEDIATRICO - UNIDADE"),
+    ]
+    for miolo, esperado in casos:
+        assert f(miolo)[0] == esperado, (miolo, f(miolo))
+    # palavra de unidade que ABRE a descricao continua na descricao
+    assert f("KIT PARTO (EMBALAGEM LACRADA) CONTENDO: 01 - KIT")[0].startswith("KIT PARTO")
+    assert f("93712 274623 BOLSA COLETORA DE URINA (SISTEMA UNID 1.800 NAO")[0].startswith("BOLSA")
+    assert "CAIXA PLASTICA" in f("30 CAIXA PLASTICA TIPO ORGANIZADOR UN")[0]
+    # medida nao e coluna de unidade
+    assert f("50 L, APRESENTACAO: PECA UNICA")[0].startswith("50 L")
+    print("ok  test_leitura_do_miolo_v17")
+
+
+def test_filtro_nao_apaga_descricao_v17():
+    """Linhas de descricao que o filtro de ruido da v16 apagava."""
+    from hbi.modules.table_extractor import _NOISE
+    mantem = [
+        "PRODUTO ESTERILIZADO. TAMANHO 14 FR. UND",
+        "FORNECIDO EM CAIXA COM 100",
+        "MEDIA - MODELO: C, SISTEMA",
+        "MAXIMO O DESFIAMENTO E A",
+        "CONDICOES GERAIS DA NBR 14990 E",
+        "DESCRICAO DETALHADA DO KIT CONFORME ANEXO",
+        "COR A CRITERIO DA CONTRATANTE.",
+        "ENTREGA PARCELADA CONFORME EDITAL.",
+        "UNID.",
+    ]
+    for s in mantem:
+        assert not _NOISE.search(s), s
+    for s in ("UNIT. (R$) (R$)", "PRECO MAXIMO PRECO TOTAL", "ANEXO I - TERMO DE REFERENCIA"):
+        assert _NOISE.search(s), s
+    print("ok  test_filtro_nao_apaga_descricao_v17")
+
+
+def test_fronteiras_e_limpeza_v17():
+    from hbi.modules import table_extractor as te
+    assert te._TOTAL_LINHA.match("TOTAL: R$ 801.434,08")
+    assert not te._TOTAL_LINHA.match("TOTAL DE 10 UNIDADES POR CAIXA")
+    assert te._FIM_DESCRICAO.search("CALIBRE N 12 - BR 437443.")
+    assert te._FIM_DESCRICAO.search("UNIDADE DE FORNECIMENTO: ROLO")
+    assert te._ROTULO_GRUPO.match("LOTE 2")
+    assert te._RS_SOLTO.sub(" ", "UNIDADE DE R$ FORNECIMENTO R$ 10,00").split() == \
+        ["UNIDADE", "DE", "FORNECIMENTO", "R$", "10,00"]
+    # cabecalho/rodape: variantes da mesma linha batem; traco de assinatura tambem
+    assert te._forma_canonica("\u00ae MUNICIPIO DE CASCAVEL") == te._forma_canonica("MUNICIPIODECASCAVEL")
+    assert te._forma_canonica("______________") == "______________"
+    print("ok  test_fronteiras_e_limpeza_v17")
+
+
+def test_escolha_usa_regua_comum():
+    """Grade que so achou itens 1..9 nao pode vencer ancoras com 55 de 58."""
+    from hbi.modules import table_extractor as te
+    from hbi.modules import grid_extractor as ge
+    from hbi.models.edital import ItemEdital
+    mk = lambda ns: [ItemEdital(item=n, descricao="x" * 30, unidade="UN", quantidade=1,
+                                valor_estimado=1.0, valor_total=1.0, pagina=1) for n in ns]
+    ancoras = mk([n for n in range(1, 59) if n not in (17, 18, 19)])
+    orig_a, orig_g = te.extrair_itens, ge.extrair_por_grade
+    te.extrair_itens = lambda r: ancoras
+    ge.extrair_por_grade = lambda c: (mk(range(1, 10)), {})
+    try:
+        itens, _ = te.melhor_extracao(object(), "qualquer.pdf")
+    finally:
+        te.extrair_itens, ge.extrair_por_grade = orig_a, orig_g
+    assert len(itens) == 55, len(itens)
+    print("ok  test_escolha_usa_regua_comum")
+
+
+
+def test_info_edital_v18():
+    """Sessão, validade, local/regional, contatos, portal e nome do arquivo."""
+    from hbi.modules.info_edital import extrair_informacoes, _local_regional, _do_nome_arquivo
+    texto = ("PREFEITURA MUNICIPAL DE X ESTADO DO PARANÁ\n"
+             "DATA E HORA DA SESSÃO PÚBLICA Dia 28/10/2026 às 08h00min (horário de Brasília)\n"
+             "LOCAL DA SESSÃO PÚBLICA BLL COMPRAS - www.bll.com.br\n"
+             "A validade da proposta não será inferior a 60 (sessenta) dias.\n"
+             "E-mail: licitacao@x.pr.gov.br Fone: (44) 3232-1234 contato@bll.org.br\n"
+             "CNPJ 76.123.456/0001-00")
+    i = extrair_informacoes(texto, "28-10-2026 - 07 30 hrs - PE 50-2026 - X PR (Portal BLL).pdf",
+                            pregao_texto="PE 032/2026")
+    assert i["sessao"]["data_sessao"] == "28/10/2026" and i["sessao"]["hora_sessao"] == "08:00"
+    assert i["validade"]["validade_proposta_dias"] == 60
+    assert i["portal"]["portal"] == "BLL Compras"
+    assert i["contatos"]["emails"] == ["licitacao@x.pr.gov.br"]       # do portal fica à parte
+    assert i["contatos"]["emails_portal"] == ["contato@bll.org.br"]
+    assert i["contatos"]["telefones"] == ["(44) 3232-1234"]           # CNPJ não vira telefone
+    assert i["origem"]["uf"] == "PR"
+    div = " ".join(i["divergencias"])
+    assert "Hora da sessão" in div and "Número do pregão" in div
+    # local/regional: a fórmula da LC 123 conta; certidão e mercado fornecedor não
+    assert _local_regional("ME e EPP sediadas local ou regionalmente terão prioridade")["local_regional"]
+    assert not _local_regional("Certidão de tributos (para empresas sediadas no Município de X)")["local_regional"]
+    assert not _local_regional("ampla disponibilidade em âmbito regional e nacional")["local_regional"]
+    cota = _local_regional("LOTES DE COTA RESERVADA - PARA MICRO E PEQUENAS EMPRESAS LOCAIS")
+    assert cota["local_regional"] and cota["tipo"].startswith("cota")
+    # nome do arquivo também depois do upload trocar espaços e parênteses por "_"
+    a = _do_nome_arquivo("28-10-2026_-_07_30_hrs_-_PE_50-2026_-_Iguacu_PR__Portal_BLL_.pdf")
+    assert a["pregao"] == "PE 50/2026" and a["portal"] == "BLL" and a["hora_sessao"] == "07:30"
+    print("ok  test_info_edital_v18")
+
+
+def test_espelho_criterios_v18():
+    """Quadro-resumo sem dois-pontos, variantes novas e número do pregão."""
+    from hbi.modules import edital_validator as ev
+    r, _ = ev.resposta_exclusiva_me_epp("MODO DE DISPUTA: Aberto EXCLUSIVO ME/EPP/EQUIPARADAS  NÃO    PREFERÊNCIA")
+    assert r is False
+    r, _ = ev.resposta_exclusiva_me_epp("o item exclusivo ME/EPP não poderá ser adjudicado")
+    assert r is None                       # frase, não resposta do quadro
+    def marcado(texto, nome):
+        return next(c for c in ev.validar(texto).criterios if c.nome == nome).presente
+    assert marcado("MENOR PREÇO POR ITEM, com PARTICIPAÇÃO EXCLUSIVA para Microempreendedor "
+                   "Individual - MEI, Microempresas", "Exclusiva ME/EPP")
+    assert marcado("LOTES DE COTA RESERVADA - PARA MICRO E PEQUENAS EMPRESAS", "Cota reservada ME/EPP")
+    assert marcado("microempresas e empresas de pequeno porte, estabelecendo cota reservada",
+                   "Cota reservada ME/EPP")
+    assert marcado("o critério de julgamento será o MENOR PREÇO POR GRUPO", "Disputa por lote (não por item)")
+    assert not marcado("taxa de R$ 600,00 por lote adjudicado", "Disputa por lote (não por item)")
+    m = ev.detectar_metadados("EDITAL DE PREGÃO Nº 050/2026 REGISTRO DE PREÇOS N° 032/2026")
+    assert m["numero_pregao"] == "PE 050/2026", m["numero_pregao"]
+    print("ok  test_espelho_criterios_v18")
+
+
+def test_espelho_pdf_e_zip_v18():
+    """PDF do espelho é gerado; zip não grava fora da pasta e corrige acentos."""
+    import io, tempfile, zipfile
+    from pathlib import Path
+    from hbi.models.edital import Edital, ResultadoValidacao, CriterioValidacao
+    from hbi.services.espelho_pdf import gerar_pdf_espelho
+    e = Edital(origem="x.pdf", orgao="X", numero_pregao="PE 1/2026", valor_total_estimado=None,
+               itens=[], validacao=ResultadoValidacao(
+                   criterios=[CriterioValidacao(nome="Exige amostras", presente=True, impacto="atencao",
+                                                evidencia="apresentar amostra <&>", categoria="Decisão")],
+                   veredito="revisar", justificativa="teste"),
+               info={"sessao": {"data_sessao": "01/01/2026"}, "divergencias": ["teste"]})
+    with tempfile.TemporaryDirectory() as d:
+        pdf = gerar_pdf_espelho(e, Path(d) / "esp.pdf")
+        assert pdf.read_bytes()[:4] == b"%PDF"
+        import sys; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from webapp.app import _extrair_pdfs_do_zip
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("../../fora.pdf", b"%PDF-1.4 x")      # tentativa de sair da pasta
+            z.writestr("pasta/Igua-xxu.pdf", b"%PDF-1.4 y")
+            z.writestr("leia.txt", b"nada")
+        dados = buf.getvalue().replace(b"Igua-xxu", "Iguaçu".encode("utf-8")[:8].ljust(8, b"_"))
+        (Path(d) / "a.zip").write_bytes(dados)
+        saida = _extrair_pdfs_do_zip(Path(d) / "a.zip", Path(d))
+        assert len(saida) == 2 and all(p.parent == Path(d) for p, _ in saida)
+        assert not (Path(d).parent / "fora.pdf").exists()
+    print("ok  test_espelho_pdf_e_zip_v18")
+
+
 if __name__ == "__main__":
     test_conversao_brl()
     test_confere_total()
@@ -343,4 +527,12 @@ if __name__ == "__main__":
     test_fronteira_regime_participacao()
     test_cancelamento_nao_e_engolido()
     test_regras_destaque()
+    test_escolha_de_estrategia()
+    test_leitura_do_miolo_v17()
+    test_filtro_nao_apaga_descricao_v17()
+    test_fronteiras_e_limpeza_v17()
+    test_escolha_usa_regua_comum()
+    test_info_edital_v18()
+    test_espelho_criterios_v18()
+    test_espelho_pdf_e_zip_v18()
     print("\nTodos os testes de fumaça passaram.")

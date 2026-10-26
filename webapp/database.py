@@ -63,6 +63,11 @@ def init_db() -> None:
             );
             """
         )
+        # Bancos criados antes da v18 não têm a coluna da pasta de arquivos.
+        try:
+            conn.execute("ALTER TABLE analises ADD COLUMN pasta TEXT")
+        except sqlite3.OperationalError:
+            pass  # já existe
         conn.commit()
         _seed_usuarios(conn)
     finally:
@@ -116,18 +121,20 @@ def registrar_analise(
     veredito: str | None,
     itens: int | None,
     soma: float | None,
-) -> None:
-    """Grava uma linha no histórico de análises."""
+    pasta: str | None = None,
+) -> int:
+    """Grava uma linha no histórico e devolve o id dela."""
     conn = get_connection()
     try:
-        conn.execute(
+        cur = conn.execute(
             """
-            INSERT INTO analises (usuario, arquivo, modo, veredito, itens, soma, criado_em)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO analises (usuario, arquivo, modo, veredito, itens, soma, criado_em, pasta)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (usuario, arquivo, modo, veredito, itens, soma, datetime.utcnow().isoformat()),
+            (usuario, arquivo, modo, veredito, itens, soma, datetime.utcnow().isoformat(), pasta),
         )
         conn.commit()
+        return cur.lastrowid
     finally:
         conn.close()
 
@@ -138,11 +145,24 @@ def listar_analises(usuario: str, limite: int = 20) -> list[sqlite3.Row]:
     try:
         return conn.execute(
             """
-            SELECT arquivo, modo, veredito, itens, soma, criado_em
+            SELECT id, arquivo, modo, veredito, itens, soma, criado_em, pasta
             FROM analises WHERE usuario = ?
             ORDER BY id DESC LIMIT ?
             """,
             (usuario, limite),
         ).fetchall()
+    finally:
+        conn.close()
+
+
+def obter_analise(analise_id: int, usuario: str) -> sqlite3.Row | None:
+    """Uma análise do histórico — só se pertencer ao usuário."""
+    conn = get_connection()
+    try:
+        return conn.execute(
+            "SELECT id, arquivo, modo, veredito, itens, soma, criado_em, pasta "
+            "FROM analises WHERE id = ? AND usuario = ?",
+            (analise_id, usuario),
+        ).fetchone()
     finally:
         conn.close()

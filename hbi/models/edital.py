@@ -118,6 +118,9 @@ class Edital:
     # Diagnóstico do join de descritivos técnicos (ver ``spec_extractor``).
     # Vazio em editais cuja tabela já traz a descrição completa.
     diagnostico_descritivos: dict = field(default_factory=dict)
+    # Informações gerais do certame (sessão, validade da proposta, participação
+    # local/regional, contatos, portal) — ver ``modules/info_edital``.
+    info: dict = field(default_factory=dict)
 
     @property
     def soma_itens(self) -> float:

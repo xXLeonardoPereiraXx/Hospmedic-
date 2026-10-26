@@ -13,6 +13,7 @@ from pathlib import Path
 
 from hbi.config import settings
 from hbi.models.edital import Edital
+from hbi.modules import info_edital
 from hbi.modules import (
     edital_validator, excel_exporter, spec_extractor, table_extractor,
 )
@@ -32,6 +33,7 @@ PAGINAS_VALIDACAO = None
 def processar_edital(
     caminho_pdf: str | Path,
     destino_xlsx: str | Path | None = None,
+    nome_original: str | None = None,
 ) -> Edital:
     """Executa o pipeline completo para um edital em PDF.
 
@@ -51,10 +53,13 @@ def processar_edital(
         texto_ini = leitor.texto_rapido(limite_paginas=PAGINAS_VALIDACAO)
         metadados = edital_validator.detectar_metadados(texto_ini)
         validacao = edital_validator.validar(texto_ini)
+        info = info_edital.extrair_informacoes(
+            texto_ini, nome_original or caminho_pdf.name, metadados["orgao"],
+            metadados["numero_pregao"])
 
         # 2) Extração da tabela de itens (varre o documento inteiro; as
         #    âncoras numéricas se autoidentificam, sem depender de páginas fixas).
-        itens = table_extractor.extrair_itens(leitor)
+        itens, extras_grade = table_extractor.melhor_extracao(leitor, caminho_pdf)
 
         # 3) Descritivos técnicos completos, quando o edital os mantém em
         #    seção separada da tabela (padrão SESA/Curitiba). O join usa lote
@@ -72,6 +77,7 @@ def processar_edital(
         valores_declarados=metadados.get("valores_declarados", []),
         itens=itens,
         validacao=validacao,
+        info=info,
     )
     edital.diagnostico_descritivos = diag_descritivos
 
@@ -83,7 +89,7 @@ def processar_edital(
     return edital
 
 
-def validar_edital(caminho_pdf: str | Path) -> Edital:
+def validar_edital(caminho_pdf: str | Path, nome_original: str | None = None) -> Edital:
     """Executa **apenas** a validação de critérios (GO/NO-GO), sem extrair
     itens nem gerar planilha.
 
@@ -104,6 +110,9 @@ def validar_edital(caminho_pdf: str | Path) -> Edital:
         texto_ini = leitor.texto_rapido(limite_paginas=PAGINAS_VALIDACAO)
         metadados = edital_validator.detectar_metadados(texto_ini)
         validacao = edital_validator.validar(texto_ini)
+        info = info_edital.extrair_informacoes(
+            texto_ini, nome_original or caminho_pdf.name, metadados["orgao"],
+            metadados["numero_pregao"])
 
     return Edital(
         origem=str(caminho_pdf),
@@ -113,4 +122,5 @@ def validar_edital(caminho_pdf: str | Path) -> Edital:
         valores_declarados=metadados.get("valores_declarados", []),
         itens=[],
         validacao=validacao,
+        info=info,
     )

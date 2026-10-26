@@ -46,6 +46,9 @@ CRITERIOS: list[tuple[str, str, str, list[str], str]] = [
             r"(item|itens)[^.\n]{0,30}exclusiv[ao][^.\n]{0,30}(me|epp|microempresa)",
             r"destinad[oa][^.\n]{0,30}exclusivamente[^.\n]{0,30}(me|epp|microempresa)",
             r"participa[çc][ãa]o\s+exclusiva[^.\n]{0,30}(me|epp|microempresa)",
+            # "PARTICIPAÇÃO EXCLUSIVA para Microempreendedor Individual – MEI,
+            # Microempresas..." (Santa Fé): mais distância e MEI/microempreendedor
+            r"participa[çc][ãa]o\s+exclusiva[^.\n]{0,80}(?:microempreendedor|\bmei\b|microempresa)",
             r"LICITA[ÇC][ÃA]O EXCLUSIVA ME/EPP[^\n]{0,20}(sim|:.{0,6}sim)",
         ],
         "atencao",
@@ -56,6 +59,11 @@ CRITERIOS: list[tuple[str, str, str, list[str], str]] = [
         "Decisão (GO/NO-GO)",
         [
             r"cota[s]? reservada[s]?[^.\n]{0,40}(me|epp|microempresa)",
+            # "LOTES DE COTA RESERVADA - PARA MICRO E PEQUENAS EMPRESAS" (Guarapuava)
+            r"cotas?\s+reservadas?[^.\n]{0,40}(?:micro\s+e\s+pequenas|pequeno\s+porte|\bmpe\b)",
+            # ME/EPP ANTES da cota: "...microempresas e empresas de pequeno porte,
+            # estabelecendo cota reservada" (CIGAMERIOS)
+            r"(?:microempresas?|pequeno\s+porte)[^.\n]{0,80}cotas?\s+reservadas?",
             r"cota reservada[^\n]{0,30}(sim|:.{0,6}sim)",
             r"reserva[^.\n]{0,20}(25%|vinte e cinco por cento)[^.\n]{0,30}(me|epp)",
         ],
@@ -66,9 +74,9 @@ CRITERIOS: list[tuple[str, str, str, list[str], str]] = [
         "Disputa por lote (não por item)",
         "Decisão (GO/NO-GO)",
         [
-            r"por lote\b",
+            r"menor\s+pre[çc]o\s+(?:global\s+)?por\s+(?:lote|grupo)",
             r"lote:\s*\d+\s*-\s*lote",
-            r"julgamento[^.\n]{0,20}por lote",
+            r"julgamento[^.\n]{0,40}por\s+(?:lote|grupo)",
             r"disputa[^.\n]{0,20}por (grupo|lote)",
         ],
         "atencao",

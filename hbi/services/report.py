@@ -13,6 +13,36 @@ from hbi.utils.text import float_para_brl
 _SIMBOLO = {"go": "[GO]", "no_go": "[NO-GO]", "revisar": "[REVISAR]", "atencao": "!", }
 
 
+
+def _bloco_informacoes(edital: Edital) -> list[str]:
+    """Sessão, validade, participação local/regional, contatos e portal."""
+    i = getattr(edital, "info", None) or {}
+    if not i:
+        return []
+    s, v, l = i.get("sessao") or {}, i.get("validade") or {}, i.get("local_regional") or {}
+    c, po, o = i.get("contatos") or {}, i.get("portal") or {}, i.get("origem") or {}
+    out = ["", "── Informações gerais " + "─" * 46]
+    out.append(f"  Origem             : {o.get('orgao') or '(não identificado)'}"
+               f"{' - ' + o['uf'] if o.get('uf') else ''}")
+    out.append(f"  Sessão pública     : {s.get('data_sessao', '(não identificada)')}"
+               f"{' às ' + s['hora_sessao'] if s.get('hora_sessao') else ''}")
+    out.append(f"  Portal de disputa  : {po.get('portal', '(não identificado)')}")
+    out.append(f"  Validade proposta  : "
+               f"{str(v['validade_proposta_dias']) + ' dias' if v.get('validade_proposta_dias') else '(não identificada)'}")
+    if l.get("local_regional"):
+        out.append(f"  Local/regional     : SIM — {l.get('tipo')}")
+        out.append(f"        └ evidência: {l.get('evidencia', '')[:150]}")
+    else:
+        out.append("  Local/regional     : não identificado no edital")
+    out.append(f"  E-mails do órgão   : {', '.join(c.get('emails') or []) or '(não identificados)'}")
+    out.append(f"  Telefones          : {', '.join(c.get('telefones') or []) or '(não identificados)'}")
+    if c.get("pregoeiro"):
+        out.append(f"  Pregoeiro(a)       : {c['pregoeiro']}")
+    for d in i.get("divergencias") or []:
+        out.append(f"  ⚠ Conferir: {d}")
+    return out
+
+
 def montar_relatorio(edital: Edital) -> str:
     """Monta o relatório textual completo do edital processado."""
     linhas: list[str] = []
@@ -24,6 +54,7 @@ def montar_relatorio(edital: Edital) -> str:
     add(f"Origem        : {Path(edital.origem).name}")
     add(f"Órgão         : {edital.orgao or '(não identificado)'}")
     add(f"Pregão        : {edital.numero_pregao or '(não identificado)'}")
+    linhas.extend(_bloco_informacoes(edital))
     add(f"Itens         : {len(edital.itens)}")
     # No modo completo o valor oficial é a SOMA DOS ITENS extraídos — número
     # exato e derivado dos dados reais da tabela. Editais costumam declarar
@@ -103,6 +134,7 @@ def montar_relatorio_validacao(edital: Edital) -> str:
     add(f"Origem        : {Path(edital.origem).name}")
     add(f"Órgão         : {edital.orgao or '(não identificado)'}")
     add(f"Pregão        : {edital.numero_pregao or '(não identificado)'}")
+    linhas.extend(_bloco_informacoes(edital))
     if edital.valor_total_estimado is not None:
         # Na triagem não há extração de itens, então mostramos o valor
         # informado no edital apenas como referência de PORTE (ordem de

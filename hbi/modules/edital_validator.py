@@ -65,13 +65,20 @@ def resposta_exclusiva_me_epp(texto: str) -> tuple[bool | None, str]:
     """
     # Formato A — rótulo seguido diretamente do valor:
     #   "EXCLUSIVO ME/EPP/EQUIPARADAS: NÃO"
+    #   ou, sem dois-pontos, como célula de tabela (Itaipulândia):
+    #   "EXCLUSIVO ME/EPP/EQUIPARADAS  NÃO    PREFERÊNCIA ..."
+    # Sem dois-pontos o valor precisa FECHAR a célula (quebra de linha ou
+    # vários espaços): "item exclusivo ME/EPP não poderá..." é frase, não
+    # resposta do quadro.
     a = re.search(
-        r"exclusiv[oa]\s+me\s*/?\s*epp[^\n:]{0,15}:\s*\n?\s*(sim|n[ãa]o)\b",
+        r"exclusiv[oa]\s+me\s*/?\s*epp[^\n:]{0,15}"
+        r"(?::\s*\n?\s*(sim|n[ãa]o)\b|\s+(sim|n[ãa]o)(?=\s{2,}|\s*\n|\s*$))",
         texto,
         re.IGNORECASE,
     )
     if a:
-        return a.group(1).lower().startswith("s"), _evidencia(texto, a)
+        valor = a.group(1) or a.group(2)
+        return valor.lower().startswith("s"), _evidencia(texto, a)
 
     # Formato B — quadro de 4 colunas achatado pelo PDF, onde "Licitação
     # Exclusiva" é a 1ª coluna e o 1º "Sim/Não" da linha de valores é a
@@ -200,7 +207,13 @@ def detectar_metadados(texto_edital: str) -> dict:
     if m_orgao:
         dados["orgao"] = normalizar_espacos(m_orgao.group(1)).title()
 
+    # "EDITAL DE PREGÃO Nº 050/2026 — REGISTRO DE PREÇOS Nº 032/2026": o
+    # número que vem COLADO em "PREGÃO" é o do pregão; o padrão longo, que
+    # aceita "REGISTRO DE PREÇOS" no meio, só entra se este não existir.
     m_preg = re.search(
+        r"PREG[ÃA]O\s*(?:\(?ELETR[ÔO]NICO\)?)?\s*(?:\(?SRP\)?)?\s*N[º°o.]*\s*(\d+/\d{4})",
+        texto_edital, re.IGNORECASE,
+    ) or re.search(
         r"PREG[ÃA]O\s*(?:\(?ELETR[ÔO]NICO\)?)?"
         r"(?:[\s\S]{0,50}?(?:REGISTRO|PRE[ÇC]OS|SRP))?"
         r"[\s\S]{0,15}?N[º°]?\s*([\d]+/\d{4})",

@@ -170,6 +170,23 @@ Layouts validados com os editais de `data/input/`:
 | Campo do Tenente (PE 18/2026) | por lote, descrição multilinha | 39/39 | 0 divergências |
 | Unicentro (PE 828/2026) | tabela simples, item zero-padded | 5/5 | 0 divergências |
 
+### Estratégia C — células da tabela (PDF que embaralha o texto)
+
+Alguns PDFs entrelaçam as colunas ao achatar o texto: a coluna de marca cai no
+meio da descrição, palavras saem partidas (`"Agulha de scartável"`) e um valor
+é dividido entre três linhas. Quando o arquivo **desenha** a tabela, a grade é
+informação melhor que o texto — cada célula é lida no lugar certo, inclusive
+colunas que a leitura linear nem enxerga.
+
+A escolha é automática e por evidência, não por tipo de arquivo: roda-se a
+leitura por âncoras e, se a sequência 1..N ficou incompleta, compara-se com a
+leitura por grade; fica a que cobre mais itens. O extrator ainda testa dois
+recortes de coluna (fixo para o documento ou por página) e adota o que
+reconhece mais linhas de item, resolve o ponto ambíguo de milhar/decimal pela
+própria aritmética da linha (`1.332` vira `1,332` quando é isso que fecha com
+o total) e descarta itens repetidos em tabelas anexas, mantendo a ocorrência
+cuja conta fecha.
+
 ### Estratégia B — itens em blocos de texto (edital sem tabela)
 
 Alguns editais não têm tabela de itens: cada item é um **bloco de texto

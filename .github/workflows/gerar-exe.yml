@@ -1,0 +1,39 @@
+# Gera o HBI.exe num Windows do GitHub, sem precisar de Python na sua máquina.
+# Rodar: aba "Actions" do repositório > "Gerar HBI.exe" > "Run workflow".
+# O resultado (HBI-windows.zip) fica para download no fim da execução.
+name: Gerar HBI.exe
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependências
+        run: pip install -r requirements.txt pyinstaller
+      - name: Testes
+        run: python tests/test_pipeline.py
+      - name: Compilar
+        run: pyinstaller --noconfirm hbi.spec
+      - name: Testar o .exe (sobe, responde e encerra)
+        shell: pwsh
+        run: |
+          $env:HBI_SEM_NAVEGADOR = "1"
+          $p = Start-Process -FilePath "dist\HBI\HBI.exe" -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 20
+          $r = Invoke-WebRequest -Uri "http://127.0.0.1:8765/health" -UseBasicParsing
+          if ($r.StatusCode -ne 200) { throw "HBI.exe não respondeu" }
+          $i = Invoke-WebRequest -Uri "http://127.0.0.1:8765/" -UseBasicParsing
+          if ($i.Content -notmatch "Analisar edital") { throw "Tela inicial não abriu" }
+          Stop-Process -Id $p.Id -Force
+      # O GitHub já entrega o resultado compactado: enviar a pasta direto
+      # evita um zip dentro de outro zip no download.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HBI-windows
+          path: dist/HBI/

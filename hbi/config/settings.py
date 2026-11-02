@@ -6,14 +6,16 @@ Sem banco de dados no MVP — tudo é arquivo/estrutura em memória.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # --- Caminhos base -----------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 INPUT_DIR = DATA_DIR / "input"
-OUTPUT_DIR = DATA_DIR / "output"
-LOG_DIR = BASE_DIR / "logs"
+# Pastas graváveis podem ser redirecionadas (o HBI.exe usa a pasta do usuário)
+OUTPUT_DIR = Path(os.environ.get("HBI_OUTPUT_DIR", DATA_DIR / "output"))
+LOG_DIR = Path(os.environ.get("HBI_LOG_DIR", BASE_DIR / "logs"))
 
 # Planilha modelo da HospMedic (layout de saída padrão).
 TEMPLATE_XLSX = DATA_DIR / "Modelo_de_Planilha_de_Licitacao.xlsx"

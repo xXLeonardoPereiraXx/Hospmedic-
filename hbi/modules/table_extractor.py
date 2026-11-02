@@ -22,6 +22,9 @@ from __future__ import annotations
 import bisect
 import re
 
+from hbi.utils.cancelamento import AnaliseCancelada
+from hbi.utils.cancelamento import checar as cancelamento_checar
+
 from hbi.models.edital import ItemEdital
 from hbi.utils.logger import get_logger
 from hbi.utils.text import normalizar_espacos
@@ -172,6 +175,18 @@ _FIM_DESCRICAO = re.compile(
     re.I,
 )
 
+# Continuação de cabeçalho de tabela: só rótulos de coluna (ver uso acima).
+_CONT_CABECALHO = re.compile(
+    r"^\s*(?:E\s+)?(?:TOTAL|UNIT[ÁA]RIO|UNIT\.|VALOR(?:ES)?|M[ÉE]DI[OA]|ESTIMAD[OA]S?"
+    r"|\(R\$\)|R\$|QTDE?\.?|QUANT\.?|UNID\.?|\s)+$",
+    re.I,
+)
+
+# Abreviações de unidade que nunca abrem uma descrição (ao contrário de KIT,
+# CAIXA, BOLSA...): só elas valem antes do "-" de código ausente.
+_ABREV_UNIDADE = {"UN", "UND", "UNID", "UM", "CX", "PCT", "PC", "FR", "GL", "KG",
+                  "RL", "PAR", "AMP", "TB", "BB", "CJ", "LT", "ML", "M", "G"}
+
 _SO_ULTIMO_COM_RS = re.compile(
     r"(?<!R\$)(?<!R\$\s)\b(" + _MONEY + r")\s+R\$\s*(" + _MONEY + r")\s*$"
 )
@@ -274,6 +289,9 @@ def _limpar_quantidade(descricao: str, quantidade: float) -> str:
     formas = {f"{q}", f"{q:,}".replace(",", "."), f"{q},00"}
     if isinstance(q, int):
         formas.add(f"{q:,}".replace(",", ".") + ",00")
+        if q < 100:
+            # quantidade escrita com zero à esquerda ("ÓCULOS 01 R$ 298,00")
+            formas |= {f"{q:02d}", f"{q:03d}"}
     for forma in sorted(formas, key=len, reverse=True):
         alvo = re.escape(forma)
         novo = re.sub(rf"\s*\b{alvo}\s*[.,;]?\s*$", "", descricao)
@@ -308,6 +326,26 @@ def _parse_miolo(miolo: str) -> tuple[str, str]:
         m_bruto, re.I)
     if m_cat:
         return m_cat.group(2).strip(), m_cat.group(1)
+    # Colunas "unidade | código CATMAT | descrição" (Porto Amazonas):
+    #   "UM 289966 SONDA DE ASPIRAÇÃO TRAQUEAL N 06 50"
+    #   "FR 269941-1 ALCOOL 70% LIQUIDO ALMOTOLIA 250 ML 1000"
+    # Palavra curta seguida de um código de 5 a 7 dígitos no INÍCIO da linha é
+    # unidade + código, sinal estrutural forte; a unidade pode estar fora do
+    # vocabulário ("UM" não pode entrar nele: "um" é palavra comum). Sem isso
+    # o código entrava na descrição e, no segundo exemplo, o "ML" da medida
+    # era tomado por unidade, cortando "250 ML" para "250".
+    # Um número solto de 1-2 dígitos antes da unidade é artefato do PDF
+    # ("3 UM 479674 TAMPÃO OCULAR"). Sem código CATMAT a tabela traz "-" no
+    # lugar dele ("UN - CLIPES 80 ... CAIXA COM 500"); o "-" só vale como
+    # código quando a palavra antes dele é unidade reconhecida (ou "UM"), para
+    # não engolir o começo de descrições como "KIT - PARTO".
+    m_uc = re.match(
+        r"^\s*(?:\d{1,2}\s+)?([A-Za-zÀ-ú]{1,6}\.?)\s+(\d{5,7}(?:-\d{1,2})?|-)\s+(\S.*)$",
+        m_bruto)
+    if m_uc and len(re.sub(r"[^A-Za-zÀ-ú]", "", m_uc.group(3))) >= 3:
+        unid = m_uc.group(1)
+        if m_uc.group(2) != "-" or unid.upper().rstrip(".") in _ABREV_UNIDADE:
+            return m_uc.group(3).strip(), unid
     # Ordem de colunas "quantidade | unidade | descrição" (Guarapuava):
     #   "1 4755 PCT CATMAT 481797 - LENÇOL"
     # Se antes da PRIMEIRA unidade só há números e depois dela há texto, a
@@ -889,6 +927,14 @@ def extrair_itens(
         or _REGIME_PARTICIPACAO.match(ln)
         or _ROTULO_GRUPO.match(ln)
     }
+    # Cabeçalho partido em duas linhas ("ITEM ... QUANTIDAD MÉDIA VALOR" /
+    # "E TOTAL", Porto Amazonas): a sobra logo ABAIXO de um cabeçalho também é
+    # fronteira. Só vale nessa posição — "E TOTAL" no meio do texto é texto.
+    fronteiras |= {
+        i + 1 for i in list(fronteiras)
+        if i + 1 < len(linhas) and _eh_cabecalho_tabela(linhas[i])
+        and linhas[i + 1].strip() and _CONT_CABECALHO.match(linhas[i + 1])
+    }
 
     # Inícios de descrição só valem como corte quando o padrão se repete o
     # bastante para ser a estrutura do documento, e não uma coincidência: um
@@ -1265,6 +1311,76 @@ def _limpar_rs_solto(itens):
     return itens
 
 
+def _fecham(itens) -> int:
+    """Itens (números distintos) cuja conta qtd × unitário = total fecha."""
+    return len({i.item for i in itens
+                if i.valor_total > 0 and abs(i.quantidade * i.valor_estimado - i.valor_total) <= 0.5})
+
+
+_COLUNA_DE_VALOR = re.compile(r"VALOR|PRE[ÇC]O|M[ÉE]DIA|UNIT|TOTAL", re.I)
+
+
+def _paginas_com_cabecalho_de_valor(reader) -> tuple[list[int], int]:
+    """Páginas (1-based) com cabeçalho de tabela que tem coluna de valor.
+
+    Usa o leitor rápido (pypdf): para achar cabeçalhos basta o texto, sem a
+    posição das letras — leva uma fração do tempo da leitura completa, o que
+    pesa no servidor com pouca CPU. Tabelas sem coluna de valor (a lista de
+    quantidades do termo de referência) não podem ser a tabela de preços.
+    """
+    from pypdf import PdfReader as _Rapido
+
+    paginas = _Rapido(str(reader.caminho)).pages
+    achadas = []
+    for n, pg in enumerate(paginas, start=1):
+        cancelamento_checar()
+        ls = (pg.extract_text() or "").split("\n")
+        for j, ln in enumerate(ls):
+            # o cabeçalho pode vir quebrado ("... QUANTIDAD" / "MÉDIA VALOR"):
+            # a coluna de valor é procurada nele e nas duas linhas seguintes
+            if _eh_cabecalho_tabela(ln) and _COLUNA_DE_VALOR.search(" ".join(ls[j:j + 3])):
+                achadas.append(n)
+                break
+    return achadas, len(paginas)
+
+
+def _melhor_regiao(reader, atual):
+    """Lê cada tabela do edital separadamente e devolve a melhor, se superar a atual.
+
+    Editais costumam repetir a lista de itens em várias tabelas: termo de
+    referência (só quantidades), mapa de pesquisa de preços (cotações por
+    fornecedor), tabela com preço estimado e modelo de proposta. A leitura
+    padrão segue a primeira sequência numérica que encontra e, no Porto
+    Amazonas, começou no mapa de cotações — misturando cotações com valores.
+
+    Cada tabela começa num cabeçalho; aqui cada trecho "de um cabeçalho até o
+    próximo" é lido sozinho, e vence o que tiver MAIS ITENS COM A CONTA
+    FECHANDO (qtd × unitário = total). Um mapa de cotações nunca fecha essa
+    conta; a tabela de preços fecha sempre. Só é usado quando a leitura padrão
+    saiu fraca, então os editais que já saíam certos não passam por aqui.
+    """
+    paginas_cab, ultima = _paginas_com_cabecalho_de_valor(reader)
+    if len(paginas_cab) < 2:
+        return None
+    # cabeçalho repetido em páginas seguidas é a mesma tabela
+    inicios = [p for k, p in enumerate(paginas_cab) if k == 0 or p != paginas_cab[k - 1] + 1]
+    nota = lambda its: (_fecham(its), len({i.item for i in its}))
+    melhor, melhor_nota, faixa = None, nota(atual), None
+    for k, ini in enumerate(inicios):
+        fim = inicios[k + 1] - 1 if k + 1 < len(inicios) else ultima
+        cand = _limpar_rs_solto(extrair_itens(reader, pagina_inicio=ini - 1, pagina_fim=fim))
+        if not cand or _completude(cand) < 0.95:
+            continue
+        n = nota(cand)
+        if n > melhor_nota:
+            melhor, melhor_nota, faixa = cand, n, (ini, fim)
+    if melhor is not None:
+        log.info("Tabela escolhida: páginas %d a %d (%d itens, %d com a conta fechando); "
+                 "a leitura do documento inteiro tinha %d com a conta fechando.",
+                 faixa[0], faixa[1], len(melhor), melhor_nota[0], _fecham(atual))
+    return melhor
+
+
 def melhor_extracao(reader, caminho=None):
     """Extrai os itens escolhendo a estratégia que der o resultado mais íntegro.
 
@@ -1279,6 +1395,18 @@ def melhor_extracao(reader, caminho=None):
     """
     itens = _limpar_rs_solto(extrair_itens(reader))
     cobertura = _completude(itens)
+    # Leitura fraca (sequência com buracos ou contas que não fecham): o
+    # documento pode ter mais de uma tabela de itens e a escolhida ser a errada.
+    if cobertura < 0.995 or _fecham(itens) < len({i.item for i in itens}) * 0.99:
+        try:
+            por_regiao = _melhor_regiao(reader, itens)
+        except AnaliseCancelada:
+            raise
+        except Exception as exc:  # noqa: BLE001 — sem a etapa, segue a leitura padrão
+            log.warning("Escolha de tabela indisponível (%s).", exc)
+            por_regiao = None
+        if por_regiao is not None:
+            itens, cobertura = por_regiao, _completude(por_regiao)
     if cobertura >= 0.995 or caminho is None:
         return itens, {}
 

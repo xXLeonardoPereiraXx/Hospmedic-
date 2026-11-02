@@ -513,6 +513,34 @@ def test_espelho_pdf_e_zip_v18():
     print("ok  test_espelho_pdf_e_zip_v18")
 
 
+
+def test_tabela_com_preco_v20():
+    """Formatos do Porto Amazonas e escolha da tabela pela conta que fecha."""
+    from hbi.modules import table_extractor as te
+    f = te._parse_miolo
+    # unidade + código CATMAT no início (unidade fora do vocabulário, código com hífen)
+    assert f("UM 289966 SONDA DE ASPIRACAO TRAQUEAL N 06 50") == ("SONDA DE ASPIRACAO TRAQUEAL N 06 50", "UM")
+    assert f("FR 269941-1 ALCOOL 70% LIQUIDO ALMOTOLIA 250 ML 1000")[0].startswith("ALCOOL 70% LIQUIDO ALMOTOLIA 250 ML")
+    # "-" no lugar do código só depois de abreviação de unidade; "KIT - PARTO" fica inteiro
+    assert f("UN - CLIPES 80 COM 500G CAIXA COM 500 3")[0].startswith("CLIPES")
+    assert f("KIT - PARTO (EMBALAGEM LACRADA) CONTENDO: 01 - KIT")[0].startswith("KIT - PARTO")
+    # número solto antes da unidade
+    assert f("3 UM 479674 TAMPAO OCULAR ADULTO 25")[0].startswith("TAMPAO")
+    # quantidade com zero à esquerda sai do fim
+    assert te._limpar_quantidade("OCULO LUPA BINOCULAR COM FOTOFORO OCULOS 01", 1) == \
+        "OCULO LUPA BINOCULAR COM FOTOFORO OCULOS"
+    # sobra de cabeçalho partido só é reconhecida como continuação de cabeçalho
+    assert te._CONT_CABECALHO.match("E TOTAL") and not te._CONT_CABECALHO.match("E TOTALMENTE ESTERIL")
+    # a escolha pela conta que fecha: itens com conta fechando contam, o resto não
+    from hbi.models.edital import ItemEdital
+    mk = lambda n, q, u, t: ItemEdital(item=n, descricao="x" * 20, unidade="UN", quantidade=q,
+                                       valor_estimado=u, valor_total=t, pagina=1)
+    cotacao = [mk(1, 0, 9.27, 9.18), mk(2, 0, 6.56, 30.84)]          # mapa de cotações
+    precos = [mk(1, 400, 9.18, 3672.0), mk(2, 15, 30.84, 462.6)]     # tabela com preço
+    assert te._fecham(precos) == 2 and te._fecham(cotacao) == 0
+    print("ok  test_tabela_com_preco_v20")
+
+
 if __name__ == "__main__":
     test_conversao_brl()
     test_confere_total()
@@ -535,4 +563,5 @@ if __name__ == "__main__":
     test_info_edital_v18()
     test_espelho_criterios_v18()
     test_espelho_pdf_e_zip_v18()
+    test_tabela_com_preco_v20()
     print("\nTodos os testes de fumaça passaram.")

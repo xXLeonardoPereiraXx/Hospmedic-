@@ -72,6 +72,9 @@ def login_obrigatorio(f):
     """Decorator que exige sessão autenticada."""
     @wraps(f)
     def wrapper(*args, **kwargs):
+        # No HBI.exe o computador é de uma pessoa só: entra direto, sem senha.
+        if "usuario" not in session and os.environ.get("HBI_MODO_DESKTOP") == "1":
+            session["usuario"] = os.environ.get("HBI_USUARIO_LOCAL", "HospMedic")
         if "usuario" not in session:
             return redirect(url_for("login"))
         return f(*args, **kwargs)

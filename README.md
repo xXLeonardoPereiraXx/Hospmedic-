@@ -1,47 +1,76 @@
-# HospMedic Bid Intelligence (HBI) — MVP
+# HospMedic Bid Intelligence (HBI)
 
 Automação da análise inicial de editais públicos de produtos hospitalares.
 O HBI lê um edital em PDF, valida os critérios de participação (**GO /
-NO-GO / REVISAR**), extrai a tabela de itens do Termo de Referência e
-preenche a planilha padrão da HospMedic — mantendo a **revisão humana como
-etapa final** do fluxo.
+NO-GO / REVISAR / ILEGÍVEL**), extrai a tabela de itens, preenche a planilha
+padrão da HospMedic e gera o **espelho de critérios em PDF** — mantendo a
+**revisão humana como etapa final** do fluxo.
 
-> Alinhado ao *Documento Mestre de Contexto* (v1.0): foco exclusivo no MVP,
-> arquitetura modular, simplicidade, rastreabilidade e evolução incremental.
+> Alinhado ao *Documento Mestre de Contexto*: automatizar tarefas
+> operacionais sem substituir a decisão humana; simplicidade,
+> confiabilidade, rastreabilidade e evolução incremental.
+
+**Versão atual: v24.** O histórico de mudanças está nos arquivos
+`CHANGELOG_vNN.md` (v17 em diante).
 
 ---
 
 ## O que o sistema faz
 
-1. **Lê** o edital em PDF (`pdf_reader`), com dois extratores: pypdf para a
-   varredura textual da validação (~4x mais rápido) e pdfplumber para a
-   extração da tabela de itens.
-2. **Valida** o edital contra um catálogo de **39 critérios** derivado do
-   *Espelho de Documentos de Licitação Hospitalar* (`edital_validator` +
-   `config/criterios_espelho.py`), registrando a **evidência textual** de
-   cada critério encontrado.
-3. **Extrai** Item, Descrição, Unidade, Quantidade, Valor Unitário e Valor
-   Total da tabela de itens (`table_extractor`), por **âncoras numéricas** —
-   estratégia independente do layout do edital (ver seção abaixo).
-4. **Reúne descritivos separados** (`spec_extractor`): quando o edital põe
-   quantidade/valores na tabela e a especificação técnica completa em outra
-   seção, os dois lados são unidos pelo lote ou pelo número do item.
-5. **Preenche** a planilha-modelo da HospMedic (`excel_exporter`),
-   regravando as fórmulas de custo/lance/total e acrescentando a coluna
-   **Confere** (e **Lote**, quando o edital disputa por lote).
-6. **Relata** o resultado (`services/report`): veredito, gate de
-   confiabilidade da extração, diagnóstico do join de descritivos e
-   checklist de habilitação por categoria.
+1. **Lê** o edital em PDF (`pdf_reader`): pypdf para a varredura textual da
+   validação (rápida) e pdfplumber para a tabela de itens (posição de cada
+   palavra e das bordas da tabela).
+2. **Confere a legibilidade**: PDF cuja fonte não tem texto legível (letras
+   viram símbolos) recebe o veredito **ILEGÍVEL**, sem avaliar critérios —
+   nunca um GO falso.
+3. **Valida** o edital contra o catálogo de **39 critérios** do *Espelho de
+   Documentos* (`edital_validator` + `config/criterios_espelho.py`), com a
+   **evidência textual** de cada critério encontrado, incluindo quadros-resumo
+   com "Sim/Não" e caixas de marcar (☒/☐).
+4. **Lê as informações gerais** (`info_edital`): órgão, sessão (data e hora),
+   portal, validade da proposta, participação local/regional, e-mails,
+   telefones e pregoeiro; confere com o nome do arquivo no padrão da equipe e
+   aponta divergências.
+5. **Lê as condições comerciais** (`condicoes_comerciais`): validade mínima
+   dos produtos, prazo de pagamento, prazo de entrega e vigência da ata (ARP),
+   cada uma com o trecho do edital.
+6. **Extrai** Item, Descrição, Unidade, Quantidade, Valor Unitário e Valor
+   Total, escolhendo entre várias estratégias pela que se prova mais íntegra
+   (ver "Extração da tabela de itens").
+7. **Reúne descritivos separados** (`spec_extractor`): tabela com valores e
+   especificação técnica em outra seção, unidos pelo lote ou pelo item.
+8. **Preenche** a planilha-modelo da HospMedic (`excel_exporter`), com a
+   coluna **Confere** e, em editais por lote, a coluna **Lote**.
+9. **Relata** o resultado: relatório `.txt` (`services/report`) e espelho de
+   critérios em PDF com a logo da HospMedic (`services/espelho_pdf`).
 
 Fluxo TO-BE:
 `seleção do PDF → leitura → validação → extração → organização → preenchimento → revisão humana`
 
-Duas formas de uso: **CLI** (`main.py`) e **interface web** com login
-(`webapp/`, Flask) — a web reaproveita integralmente o pipeline.
+Três formas de uso, todas com o mesmo pipeline: **HBI.exe** (aplicativo de
+computador), **interface web** (Flask, `webapp/`) e **CLI** (`main.py`).
 
 ---
 
-## Como rodar (CLI)
+## Como usar
+
+### HBI.exe (recomendado para a equipe)
+Passo a passo para gerar e distribuir em `COMO_GERAR_O_EXE.md`. Resumo:
+envie a versão ao GitHub; o workflow **Gerar HBI.exe**
+(`.github/workflows/gerar-exe.yml`) roda os testes, compila com PyInstaller
+(`hbi.spec`) e entrega o `HBI-windows.zip`. Também dá para gerar no próprio
+Windows com `gerar_exe.bat`.
+
+O HBI.exe abre o navegador no próprio computador (127.0.0.1, sem login,
+invisível para a rede). Dados, histórico e logs ficam em `%LOCALAPPDATA%\HBI`.
+
+### Vários editais de uma vez
+A tela de envio aceita vários PDFs ou um `.zip` (até 30 editais). Cada um é
+processado na sequência ("Edital 3 de 7"); um erro num edital não interrompe
+os demais. O resultado é um `.zip` com planilha, espelho e relatório de cada
+edital e um `resumo.txt`.
+
+### CLI
 
 ```bash
 pip install -r requirements.txt
@@ -51,28 +80,23 @@ python main.py data/input/PE_10-2026_Xambre.pdf \
     --out data/output/PE_10-2026_Xambre.xlsx \
     --relatorio data/output/PE_10-2026_Xambre_relatorio.txt
 
-# somente validação de critérios (GO/NO-GO), sem extrair itens nem planilha
+# somente validação de critérios (triagem), sem extrair itens nem planilha
 python main.py data/input/PE_10-2026_Xambre.pdf --somente-validacao \
     --relatorio data/output/validacao.txt
 ```
 
-O modo `--somente-validacao` é a triagem rápida: varre o texto do edital
-inteiro, aplica os critérios e mostra o veredito com evidências e o
-checklist de habilitação — sem rodar a extração da tabela nem gerar
-planilha. Nesse modo o relatório exibe o valor global **declarado** no
-edital apenas como referência de porte; no modo completo, o valor oficial é
-a **soma dos itens extraídos**.
+No modo `--somente-validacao` o relatório mostra o valor global
+**declarado** apenas como referência de porte; no modo completo, o valor
+oficial é a **soma dos itens extraídos**.
 
-Saídas:
-- `data/output/<edital>.xlsx` — planilha padrão preenchida.
-- `data/output/<edital>_relatorio.txt` — relatório GO/NO-GO + conferência.
-- `logs/hbi.log` — log de execução (rastreabilidade).
-
-Testes de fumaça (sem depender de PDFs ou bibliotecas externas):
+### Testes
 
 ```bash
-python tests/test_pipeline.py
+pip install pytest
+python -m pytest -q tests        # na raiz do projeto (40 testes na v24)
 ```
+
+Os testes geram PDFs sintéticos com reportlab; não dependem dos editais.
 
 Para a interface web e o deploy no Render, ver `webapp/LEIA-ME_WEB.md`.
 
@@ -82,112 +106,100 @@ Para a interface web e o deploy no Render, ver `webapp/LEIA-ME_WEB.md`.
 
 ```
 hbi/
-├── main.py                     # CLI (ponto de entrada)
-├── requirements.txt
-├── render.yaml                 # blueprint de deploy (Render)
+├── main.py                     # CLI
+├── hbi_desktop.py              # HBI.exe: sobe o servidor local e abre o navegador
+├── hbi.spec / gerar_exe.bat    # receita do PyInstaller / geração no Windows
+├── .github/workflows/gerar-exe.yml
+├── requirements.txt, render.yaml
 ├── data/
-│   ├── input/                  # editais em PDF (inclui teste_cego/)
-│   ├── output/                 # planilhas + relatórios gerados
 │   └── Modelo_de_Planilha_de_Licitacao.xlsx   # modelo da HospMedic
 ├── hbi/
 │   ├── config/
-│   │   ├── settings.py          # caminhos, tolerância, layout da planilha
-│   │   └── criterios_espelho.py # catálogo de 39 critérios (com variantes)
-│   ├── models/edital.py         # Edital, ItemEdital, CriterioValidacao...
+│   │   ├── settings.py           # caminhos, tolerância, layout da planilha
+│   │   ├── criterios_espelho.py  # catálogo de 39 critérios (com variantes)
+│   │   └── regras_destaque.py    # termos críticos em vermelho na planilha
+│   ├── models/edital.py          # Edital, ItemEdital, gate de extração
 │   ├── modules/
-│   │   ├── pdf_reader.py        # leitura de baixo nível (pdfplumber + pypdf)
-│   │   ├── edital_validator.py  # validação GO/NO-GO + metadados
-│   │   ├── table_extractor.py   # extração da tabela por âncoras numéricas
-│   │   ├── spec_extractor.py    # descritivos técnicos em seção separada
-│   │   └── excel_exporter.py    # preenchimento da planilha padrão
+│   │   ├── pdf_reader.py         # leitura de baixo nível (pdfplumber + pypdf)
+│   │   ├── edital_validator.py   # GO/NO-GO, legibilidade, metadados
+│   │   ├── info_edital.py        # informações gerais + conferência c/ nome do arquivo
+│   │   ├── condicoes_comerciais.py  # validade, pagamento, entrega, vigência ARP
+│   │   ├── table_extractor.py    # âncoras numéricas + escolha da estratégia
+│   │   ├── cell_extractor.py     # leitura pelas células desenhadas (v24)
+│   │   ├── col_extractor.py      # leitura pela posição das colunas (v22)
+│   │   ├── grid_extractor.py     # grade do pdfplumber; fichas por lote
+│   │   ├── unidades.py           # whitelist e limpeza da unidade (v24)
+│   │   ├── spec_extractor.py     # descritivos técnicos em seção separada
+│   │   └── excel_exporter.py     # preenchimento da planilha padrão
 │   ├── services/
-│   │   ├── pipeline.py          # orquestra o fluxo TO-BE
-│   │   └── report.py            # relatórios (completo e de triagem)
-│   └── utils/
-│       ├── logger.py            # logging (console + arquivo)
-│       └── text.py              # conversões BRL, normalização
-├── webapp/                      # camada web (Flask): login, upload, histórico
-└── tests/test_pipeline.py
+│   │   ├── pipeline.py           # orquestra o fluxo TO-BE
+│   │   ├── report.py             # relatório .txt
+│   │   └── espelho_pdf.py        # espelho de critérios em PDF
+│   └── utils/                    # logger, texto/BRL, cancelamento
+├── webapp/                       # Flask: login, upload, lote, histórico
+└── tests/                        # test_pipeline, test_condicoes_v23,
+                                  # test_celulas_v24, test_unidades_v24
 ```
 
-Cada item extraído carrega a **página de origem** (rastreabilidade) e cada
-critério presente carrega a **evidência textual** que o embasou.
+Cada item extraído carrega a **página de origem** e cada critério presente
+carrega a **evidência textual** que o embasou.
 
 ---
 
-## Extração por âncoras numéricas (independente de layout)
+## Extração da tabela de itens
 
-A extração **não usa coordenadas de coluna**: ela reconhece cada item por
-uma **âncora** — uma linha que contém o número do item e valores
-monetários — e é validada pela própria matemática da linha. Regras:
+Não existe um layout único de edital. Por isso o HBI tem várias leituras e
+**escolhe por evidência**, nunca por tipo de arquivo ou nome de órgão. A
+régua é sempre a mesma: sequência de itens completa e conta
+`quantidade × unitário = total` fechando. Uma leitura nova só substitui a
+anterior quando se prova melhor.
 
-1. **Âncora numérica**: linha iniciada por um inteiro e terminando em dois
-   valores monetários (unitário e total), tolerando prefixo `R$` (com ou
-   sem espaço), 2 a 4 casas decimais e colunas finais que não são valores
-   (traços `- - - -` ou margens textuais como `MedNac 5%`).
-2. **Contagem incremental**: a âncora só é aceita se o número for o próximo
-   esperado (1, 2, 3, …), com folga limitada para saltos. Isso rejeita
-   falsos-positivos de dígitos soltos. Em editais **por lote**, a contagem
-   reinicia a cada `Lote: N`.
-3. **Fronteira por regime de participação**: em editais que marcam a reserva
-   item a item (`EXCLUSIVO MEI/ME/EPP`, `AMPLA PARTICIPAÇÃO`, `COTA ME/EPP`),
-   esse rótulo abre o bloco de um item e funciona como fronteira estrutural.
-   Sem ele, a descrição de um item invade a do vizinho — e o começo do texto,
-   que nesses layouts fica **acima** da linha-âncora, seria atribuído ao item
-   anterior.
-4. **Layout invertido**: quando a linha de valores não começa pelo número
-   (descrição + valores) e o número abre a linha seguinte, o par é
-   reconhecido em conjunto.
-5. **Valor quebrado**: quando o PDF parte um valor para outra linha (um
-   `R$` órfão e o número deslocado — inclusive misturado a texto ou
-   empurrado para depois de rodapé em quebra de página), o valor é buscado
-   numa janela ao redor da âncora. Perto da âncora, basta a razão
-   total/unitário ser inteira; longe dela, só é aceito se `qtd × unitário
-   == total` fechar exatamente. A quantidade também pode ser a **soma** de
-   múltiplas colunas de quantidade (editais com mais de um destinatário).
-6. **Quantidade derivada**: calculada de `valor_total / valor_unitário`
-   (os dois dados mais confiáveis da linha); o parse do miolo da âncora
-   serve de verificação cruzada.
-7. **Descrição**: montada dos fragmentos ao redor da âncora (antes, depois
-   ou na própria linha, conforme o layout), ordenados pela posição de
-   origem. Fronteiras estruturais (cabeçalho de tabela, linhas de `TOTAL`,
-   início de lote) impedem que texto "vaze" de um item para outro.
+### A — células desenhadas (v24, a mais precisa)
+Quando o PDF desenha as bordas da tabela, essas coordenadas são a fronteira
+entre itens: cada linha da tabela é a faixa entre duas bordas horizontais, e
+cada palavra vai para a célula onde está o seu centro. A descrição de um item
+não tem como cair na célula de outro, e a unidade vem da própria coluna de
+unidade.
 
-Layouts validados com os editais de `data/input/`:
+Detalhes tratados: bordas desenhadas célula a célula; retângulos internos e
+fios decorativos de página; tabela deslocada entre páginas (colunas pela
+posição relativa); cabeçalho com letras espaçadas ou células mescladas;
+coluna de descrição chamada "ITEM"; item cortado pela quebra de página
+(inclusive descrição que atravessa duas páginas e valores na página
+seguinte); número de página e cabeçalhos repetidos dentro da grade.
 
-| Edital | Layout | Itens | Conferência |
-|---|---|---|---|
-| Xambrê (PE 10/2026) | grade de células | 207/207 | soma exata, 0 divergências |
-| Curiúva (PE 12/2026) | por lote (portal BLL) | 278/278 | soma exata, 0 divergências |
-| Florianópolis | invertido (valores antes do número) | 412+ | 0 divergências |
-| Paranacity | prefixo R$ + valores quebrados | 406/406 | soma exata = valor declarado |
-| Campo Largo (PE 56/2026, itens) | compacto, item na própria linha | 112/112 | 0 divergências |
-| São José dos Pinhais | grade | 22/22 | soma exata, 0 divergências |
-| 5ª Brigada (TR 28/2026) | colunas de margem + valores quebrados | 187/187 | 0 divergências |
-| SESA/PR (PE 713/2026) | ficha por lote (`ITEM 1 PEÇA …`) | 22/22 | soma exata = valor declarado |
-| FEAS/Curitiba (PE 70/2026) | **sem tabela** — itens em blocos de texto | 13/13 | sequência completa |
-| ICS/Curitiba (PE 11/2026) | descrição acima e abaixo da âncora, com rótulo de regime | 21/21 | 0 divergências |
-| Campo do Tenente (PE 18/2026) | por lote, descrição multilinha | 39/39 | 0 divergências |
-| Unicentro (PE 828/2026) | tabela simples, item zero-padded | 5/5 | 0 divergências |
+É adotada só se: a conta fecha em 98%+ das linhas, a numeração não tem
+saltos, nenhum texto ficou sem dono entre dois itens seguidos e a tabela não
+aparece repetida (o valor dobraria). Com os mesmos números da leitura
+anterior, troca só o texto, e campos vazios na célula ficam com o valor que
+a leitura anterior tinha.
 
-### Estratégia C — células da tabela (PDF que embaralha o texto)
+### B — âncoras numéricas (tabelas sem bordas)
+Reconhece cada item por uma **âncora** — linha com o número do item e os
+valores monetários — e monta a descrição com o texto ao redor. Regras
+principais: contagem incremental (rejeita dígitos soltos; reinicia por
+lote), fronteiras estruturais (cabeçalho, TOTAL, lote, regime de
+participação), layout invertido, valores quebrados entre linhas, quantidade
+derivada de total ÷ unitário e topo de página decidido pelo equilíbrio do
+bloco. É a leitura que adivinha fronteiras pelo texto; por isso, quando há
+bordas, a leitura A tem prioridade.
 
-Alguns PDFs entrelaçam as colunas ao achatar o texto: a coluna de marca cai no
-meio da descrição, palavras saem partidas (`"Agulha de scartável"`) e um valor
-é dividido entre três linhas. Quando o arquivo **desenha** a tabela, a grade é
-informação melhor que o texto — cada célula é lida no lugar certo, inclusive
-colunas que a leitura linear nem enxerga.
+### C — escolha de tabela, fichas por lote e grade
+- **Mais de uma tabela de itens** (TR, mapa de cotações, modelo de proposta):
+  cada tabela com coluna de valor é lida e vence a que tem mais contas
+  fechando (Porto Amazonas).
+- **Uma tabela por lote**: quando há mais títulos de lote que itens lidos,
+  as fichas de lote são relidas (Fundo Estadual de Saúde).
+- **Grade do pdfplumber**: quando a sequência sai com buracos, compara-se com
+  a leitura por grade e fica a que cobre mais itens.
 
-A escolha é automática e por evidência, não por tipo de arquivo: roda-se a
-leitura por âncoras e, se a sequência 1..N ficou incompleta, compara-se com a
-leitura por grade; fica a que cobre mais itens. O extrator ainda testa dois
-recortes de coluna (fixo para o documento ou por página) e adota o que
-reconhece mais linhas de item, resolve o ponto ambíguo de milhar/decimal pela
-própria aritmética da linha (`1.332` vira `1,332` quando é isso que fecha com
-o total) e descarta itens repetidos em tabelas anexas, mantendo a ocorrência
-cuja conta fecha.
+### D — posição das colunas (v22)
+Para relatórios de sistema sem grade que despejam o texto fora da ordem
+visual (Londrina): cada palavra vai para a coluna pela coordenada x do
+cabeçalho. Só entra com descrições contaminadas e só é adotada com os mesmos
+números.
 
-### Estratégia B — itens em blocos de texto (edital sem tabela)
+### E — itens em blocos de texto (edital sem tabela)
 
 Alguns editais não têm tabela de itens: cada item é um **bloco de texto
 rotulado**, com os dados em linhas próprias.
@@ -229,6 +241,44 @@ conteúdo, partindo palavras no meio (`"para que ha" + "j a3 melhor ajuste"`).
 O `pdf_reader.sem_marca_dagua` descarta os caracteres **rotacionados** (matriz
 de transformação com termo de inclinação não nulo), removendo o carimbo sem
 tocar em nenhum caractere do corpo do documento.
+
+### Unidades (v24)
+Na leitura por texto a unidade é adivinhada; na leitura A ela vem da coluna.
+Em ambos os casos o campo passa pela whitelist de `unidades.py`:
+- letras espaçadas pelo PDF viram a unidade ("UN D" → UND, "ME TR O" →
+  METRO);
+- unidade fora da lista (ex.: "Luva", nome do produto) é trocada só com
+  evidência: a quantidade do item seguida de uma unidade da lista na
+  descrição ("340,0 PA");
+- medidas (ML, L, G, KG, M, CM) nunca vêm da descrição ("CAP 160 ML" é
+  capacidade);
+- sem evidência, nada é inventado: o relatório lista os itens em
+  "Unidades a conferir".
+
+### Editais de referência
+
+Alguns dos layouts que guiaram a extração (a regressão de cada versão roda
+hoje em 29 editais):
+
+| Edital | Layout | Itens | Conferência |
+|---|---|---|---|
+| Xambrê (PE 10/2026) | grade de células | 207/207 | soma exata, 0 divergências |
+| Curiúva (PE 12/2026) | por lote (portal BLL) | 278/278 | soma exata, 0 divergências |
+| Florianópolis | invertido (valores antes do número) | 412+ | 0 divergências |
+| Paranacity | prefixo R$ + valores quebrados | 406/406 | soma exata = valor declarado |
+| Campo Largo (PE 56/2026, itens) | compacto, item na própria linha | 112/112 | 0 divergências |
+| São José dos Pinhais | grade | 22/22 | soma exata, 0 divergências |
+| 5ª Brigada (TR 28/2026) | colunas de margem + valores quebrados | 187/187 | 0 divergências |
+| SESA/PR (PE 713/2026) | ficha por lote (`ITEM 1 PEÇA …`) | 22/22 | soma exata = valor declarado |
+| FEAS/Curitiba (PE 70/2026) | **sem tabela** — itens em blocos de texto | 13/13 | sequência completa |
+| ICS/Curitiba (PE 11/2026) | descrição acima e abaixo da âncora, com rótulo de regime | 21/21 | 0 divergências |
+| Campo do Tenente (PE 18/2026) | por lote, descrição multilinha | 39/39 | 0 divergências |
+| Unicentro (PE 828/2026) | tabela simples, item zero-padded | 5/5 | 0 divergências |
+| Ubiratã (PE 77/2026) | células desenhadas, descrição atravessando páginas | 232/232 | 0 divergências |
+| Missal (PE 59/2026) | células, "QUANT. UND" mesclado no cabeçalho | 105/105 | 0 divergências |
+| Balneário Gaivota (PE 3/2026) | células, tabela repetida 3 vezes | 292/292 | soma = valor declarado |
+| Porto Amazonas (PE 34/2026) | quatro tabelas de itens no mesmo edital | 365/365 | soma = valor declarado |
+| Londrina (PE 131/2026) | relatório de sistema, texto fora de ordem | 23/23 lotes | 0 divergências |
 
 ---
 
@@ -306,20 +356,31 @@ Também são detectados metadados: **órgão**, **número do pregão** e os
 
 Para cada item, o sistema verifica se `quantidade × valor_unitário =
 valor_total` (tolerância de R$ 0,50, em `settings.TOLERANCIA_TOTAL`).
-Divergências são marcadas como **REVISAR** (célula destacada) na coluna
-*Confere* da planilha.
+Divergências são marcadas como **REVISAR** na coluna *Confere* da planilha.
 
-O relatório traz ainda um **gate de confiabilidade da extração**, baseado
-apenas em evidência interna dos dados:
+O relatório traz o **gate de confiabilidade da extração**:
 
-- **CONFIAVEL** — sequência de itens 1..N completa **e** ≥98% das linhas
-  consistentes;
-- **REVISAR** — sequência incompleta, consistência baixa ou poucos itens
-  (< 3) para haver evidência suficiente.
+- **CONFIAVEL** — sequência 1..N completa **e** ≥98% das linhas
+  consistentes **e** soma dos itens não abaixo de 97% do valor estimado
+  declarado (quando o edital declara um);
+- **REVISAR** — sequência incompleta, consistência baixa, poucos itens
+  (< 3) ou soma abaixo do valor declarado (itens podem ter ficado para trás).
 
-O valor global declarado no edital **não** é usado como âncora do gate:
-editais frequentemente declaram valores que divergem entre si (soma dos
-itens vs. verba disponível). O número oficial é a soma dos itens extraídos.
+O valor declarado só entra como teste de **confiança**; o número oficial é
+sempre a soma dos itens extraídos.
+
+O relatório também lista os itens com unidade vazia ou fora da lista
+("Unidades a conferir").
+
+---
+
+## Espelho de critérios (PDF)
+
+Gerado em toda análise, pronto para imprimir ou arquivar: logo da HospMedic,
+informações gerais, condições comerciais (validade mínima dos produtos,
+prazo de pagamento, prazo de entrega, vigência da ARP — cada uma com o
+trecho do edital), pontos a conferir (divergências com o nome do arquivo),
+veredito e critérios por categoria com a evidência.
 
 ---
 
@@ -384,21 +445,29 @@ Guia completo (rodar local, variáveis, free tier): `webapp/LEIA-ME_WEB.md`.
 
 ---
 
-## Limitações conhecidas (MVP) e próximos passos
+## Regressão antes de cada versão
 
-- **Novos layouts de tabela**: a âncora genérica foi validada nos sete
-  layouts acima; padrões inéditos de Termo de Referência podem exigir uma
-  nova variante de âncora (o gate de extração acusa quando a sequência vem
-  incompleta).
-- **Descrições em layouts multi-coluna**: quando o PDF entrelaça a
-  descrição de itens vizinhos, algum texto pode ser atribuído ao item
-  errado — a coluna *Confere* e a revisão humana cobrem esses casos.
-- **Regras de validação**: baseadas em busca textual; redações muito
-  atípicas podem exigir novas variantes no catálogo.
-- **Editais em dois arquivos** (ex.: Campo Largo separa edital e itens):
-  cada PDF é processado individualmente — rodar a validação no arquivo do
-  edital e a extração no arquivo de itens.
+Toda mudança na extração é rodada no corpus de editais reais (29 na v24) e
+comparada com a versão anterior: quantidade, unitário, total, número de
+itens, descrições e unidades. Diferenças são conferidas item a item no PDF
+antes de empacotar; o resultado vai no changelog da versão.
+
+---
+
+## Limitações conhecidas e próximos passos
+
+- **PDF escaneado (imagem)**: sem OCR integrado, a tabela não é lida
+  (ex.: Pinhalão PE 62/2026). PDF com fonte ilegível recebe ILEGÍVEL.
+- **Tabelas sem bordas**: seguem a leitura por âncoras, que ainda pode
+  atribuir texto ao item vizinho em layouts atípicos; a whitelist cobre a
+  unidade, a coluna *Confere* e a revisão humana cobrem o resto.
+- **Cabeçalhos não reconhecidos pela leitura por células** (ex.: CIGAMERIOS,
+  Campo do Tenente): seguem a leitura por âncoras.
+- **Condições comerciais e critérios**: busca por padrões de texto; redações
+  atípicas podem não ser reconhecidas (o campo sai "não identificado", nunca
+  um chute).
+- **Editais em dois arquivos**: cada PDF é processado individualmente.
 
 Fora do MVP (visão de longo prazo do documento mestre): integração com o
-catálogo da HospMedic, banco de dados estruturado, APIs, dashboards e
-apoio à decisão.
+catálogo da HospMedic, banco de dados estruturado, APIs, dashboards e apoio
+à decisão.

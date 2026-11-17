@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from hbi.utils.text import float_para_brl
+
 # Abaixo deste número de itens, a consistência interna não é evidência
 # suficiente para declarar a extração confiável (ver ``diagnostico_extracao``).
 MIN_ITENS_PARA_CONFIANCA = 3
@@ -80,8 +82,13 @@ class ResultadoValidacao:
     """Consolidação da validação de critérios com o veredito GO/NO-GO."""
 
     criterios: list[CriterioValidacao] = field(default_factory=list)
-    veredito: str = "revisar"  # "go", "no_go" ou "revisar"
+    veredito: str = "revisar"  # "go", "no_go", "revisar" ou "ilegivel"
     justificativa: str = ""
+    # Proporção de caracteres alfabéticos no texto lido do PDF. Um PDF cuja
+    # fonte não tem mapeamento para Unicode produz texto sem nenhuma letra
+    # reconhecível (só "(cid:N)" ou nada) — aqui fica o indicador que permite
+    # distinguir "nenhuma exigência encontrada" de "nada foi lido".
+    legibilidade: float = 1.0
 
     @property
     def impeditivos(self) -> list[CriterioValidacao]:
@@ -170,4 +177,35 @@ class Edital:
         else:
             diag["gate"] = "REVISAR"
             diag["motivo_gate"] = "consistência interna baixa ou sequência incompleta"
+
+        # Checagem adicional, independente da evidência interna: a soma pode
+        # fechar consigo mesma e ainda assim estar incompleta, quando um
+        # grupo inteiro de itens (um lote, uma seção) ficou de fora — a
+        # consistência interna não enxerga o que não foi lido (visto no Fundo
+        # Estadual de Saúde do PR, PE 107/2026: 7 de 9 lotes, contas corretas,
+        # 32% do valor faltando). Isso não troca o número oficial
+        # (``soma_itens`` continua sendo a soma dos itens extraídos, por
+        # definição) nem usa o declarado como referência de valor — só rebaixa
+        # a confiança quando a diferença é grande demais para ser a divergência
+        # normal entre valores que o mesmo edital às vezes declara.
+        # Usa só o valor ÚNICO já escolhido (``valor_total_estimado``), com
+        # preferência por contexto de "...estimado da contratação" — não a
+        # lista completa de valores declarados, que costuma trazer ruído sem
+        # relação com o total (ex.: o teto de R$ 80.000,00 da exclusividade
+        # ME/EPP da Lei Complementar 123, capturado como "valor até R$
+        # 80.000,00... exclusiva"). Comparar contra esse ruído dispararia
+        # alarme falso em qualquer lote pequeno que custe menos que o teto.
+        diag["valor_declarado_diverge"] = False
+        d = self.valor_total_estimado
+        if d and self.soma_itens and self.soma_itens < d * 0.97:
+            diag["valor_declarado_diverge"] = True
+            diag["valor_declarado_referencia"] = d
+            if diag["gate"] == "CONFIAVEL":
+                diag["gate"] = "REVISAR"
+            diag["motivo_gate"] = (
+                f"{diag['motivo_gate']}; a soma dos itens "
+                f"(R$ {float_para_brl(self.soma_itens)}) fica abaixo do valor "
+                f"que o edital declara (R$ {float_para_brl(d)}) — confira se "
+                "algum item, lote ou seção ficou de fora da extração"
+            )
         return diag

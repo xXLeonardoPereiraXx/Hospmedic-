@@ -23,6 +23,8 @@ import re
 from collections import Counter
 
 from hbi.models.edital import ItemEdital
+from hbi.utils import cancelamento
+from hbi.utils.cancelamento import checar as cancelamento_checar
 from hbi.utils.logger import get_logger
 from hbi.utils.text import normalizar_espacos
 
@@ -275,3 +277,106 @@ def extrair_por_grade(caminho) -> tuple[list[ItemEdital], dict[int, str]]:
 
     log.info("Itens extraídos: %d (células da tabela)", len(itens))
     return itens, extras
+
+
+# --- uma tabela por lote ("ficha por lote") ----------------------------------
+_TITULO_LOTE = re.compile(r"^\s*LOTE\s+(\d+)\b", re.I)
+
+
+def _indices_cabecalho(celulas: list[str]) -> dict:
+    """Posição de cada coluna, deduzida pelo TEXTO do cabeçalho da tabela."""
+    def acha(padrao, depois=-1):
+        for j, c in enumerate(celulas):
+            if j > depois and re.search(padrao, c, re.I):
+                return j
+        return None
+
+    unit = acha(r"unit")
+    return {
+        "desc": acha(r"descri"),
+        "qtd": acha(r"quantid"),
+        "unit": unit,
+        "total": acha(r"total", depois=unit if unit is not None else -1),
+    }
+
+
+def extrair_fichas_por_lote(caminho, paginas: list[int] | None = None):
+    """Lê editais em que CADA LOTE TEM A SUA TABELA (título, cabeçalho e itens).
+
+    É o desenho do termo de referência de editais como o do Fundo Estadual de
+    Saúde do Paraná: uma tabelinha por lote, com a quantidade e os preços em
+    células separadas. O texto linear desse PDF embaralha essas células (a
+    quantidade vai parar numa linha própria, a linha de preços perde o número
+    do item) e a leitura por âncoras deixa lotes para trás. Pela grade, cada
+    célula é lida no lugar certo e as colunas são identificadas pelo texto do
+    cabeçalho, não por posição.
+
+    A numeração dos itens é sequencial no documento e o número do lote vai na
+    coluna própria, como nos demais editais por lote.
+
+    Args:
+        caminho: PDF do edital.
+        paginas: páginas (1-based) a examinar; sem isso, o documento todo.
+    """
+    import pdfplumber
+
+    itens: list[ItemEdital] = []
+    vistos: set = set()
+    lote: int | None = None
+    mapa: dict | None = None
+    with pdfplumber.open(str(caminho)) as pdf:
+        for n in (paginas or range(1, len(pdf.pages) + 1)):
+            if not 1 <= n <= len(pdf.pages):
+                continue
+            cancelamento_checar()
+            try:
+                tabelas = pdf.pages[n - 1].extract_tables()
+            except Exception:  # noqa: BLE001 — página sem tabela legível
+                continue
+            for tabela in tabelas:
+                # Continuação de descrição só vale dentro da MESMA tabela do
+                # item: logo abaixo da ficha do lote costuma vir outra tabela
+                # (o "DESCRITIVO" técnico), cujas linhas não são sobra desta.
+                item_da_tabela: ItemEdital | None = None
+                for linha in tabela:
+                    c = [_txt(x) for x in linha]
+                    if not any(c):
+                        continue
+                    junto = " ".join(c)
+                    # cabeçalho: sempre vem DEPOIS do título do lote
+                    if re.search(r"quantid", junto, re.I) and re.search(r"total", junto, re.I):
+                        mapa = _indices_cabecalho(c)
+                        continue
+                    m = _TITULO_LOTE.match(c[0]) if c[0] else None
+                    if m and not any(_MONEY.match(x) for x in c):
+                        lote, mapa = int(m.group(1)), None
+                        continue
+                    if lote is None or not mapa or None in (mapa["unit"], mapa["total"]):
+                        continue
+
+                    def em(chave):
+                        j = mapa.get(chave)
+                        return c[j] if j is not None and j < len(c) else ""
+
+                    unit_txt, total_txt = em("unit"), em("total")
+                    if _MONEY.match(unit_txt) and _MONEY.match(total_txt):
+                        qtd = _para_float(em("qtd"))
+                        unit, total = _para_float(unit_txt), _para_float(total_txt)
+                        desc = em("desc")
+                        chave = (lote, desc[:40].lower(), qtd)
+                        if chave in vistos:   # mesma ficha repetida em anexo
+                            continue
+                        vistos.add(chave)
+                        item_da_tabela = ItemEdital(
+                            item=len(itens) + 1, descricao=desc, unidade="",
+                            quantidade=qtd or 0.0, valor_estimado=unit or 0.0,
+                            valor_total=total or 0.0, pagina=n, lote=lote,
+                        )
+                        itens.append(item_da_tabela)
+                    elif item_da_tabela is not None and em("desc"):
+                        # continuação da descrição numa linha de baixo
+                        item_da_tabela.descricao = normalizar_espacos(
+                            f"{item_da_tabela.descricao} {em('desc')}")
+    log.info("Fichas por lote: %d itens em %d lotes.", len(itens),
+             len({i.lote for i in itens}))
+    return itens, {}

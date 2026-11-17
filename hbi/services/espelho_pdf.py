@@ -25,6 +25,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
+    Image,
     KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
@@ -47,7 +48,7 @@ ROTULO_IMPACTO = {
     "go": "Favorável", "checklist": "Documento",
 }
 COR_VEREDITO = {"go": COR_IMPACTO["go"], "no_go": COR_IMPACTO["no_go"],
-                "revisar": COR_IMPACTO["atencao"]}
+                "revisar": COR_IMPACTO["atencao"], "ilegivel": COR_IMPACTO["no_go"]}
 
 _base = getSampleStyleSheet()
 TITULO = ParagraphStyle("t", parent=_base["Title"], fontName="Helvetica-Bold",
@@ -109,6 +110,40 @@ def _tabela_info(edital: Edital) -> Table:
     return t
 
 
+def _tabela_condicoes(condicoes: dict) -> Table:
+    """Condições comerciais: valor encontrado e o trecho do edital que o traz."""
+    rotulos = [
+        ("validade_produtos", "Validade mínima dos produtos"),
+        ("prazo_pagamento", "Prazo de pagamento"),
+        ("prazo_entrega", "Prazo de entrega"),
+        ("vigencia_arp", "Vigência da ata (ARP)"),
+    ]
+    dados = [[_p("Condição", ROT), _p("Valor no edital", ROT), _p("Evidência", ROT)]]
+    for chave, rotulo in rotulos:
+        c = condicoes.get(chave) or {}
+        if c.get("valor"):
+            dados.append([_p(rotulo), _p(c["valor"]), _p(c.get("evidencia", "")[:260], PEQ)])
+        else:
+            dados.append([_p(rotulo), _p("não identificado no edital", PEQ), _p("")])
+    t = Table(dados, colWidths=[52 * mm, 50 * mm, 68 * mm], repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), FUNDO),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.4, colors.HexColor("#d4dae4")),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+    ]))
+    return t
+
+
+def _logo() -> Image | None:
+    """Logo HospMedic para o topo do espelho; sem ela, o PDF sai igual."""
+    caminho = Path(__file__).resolve().parents[2] / "webapp" / "static" / "hospmedic-logo.png"
+    if not caminho.exists():
+        return None
+    largura = 38 * mm
+    return Image(str(caminho), width=largura, height=largura * 275 / 403, hAlign="LEFT")
+
+
 def _tabela_criterios(criterios) -> Table:
     dados = [[_p("Critério", ROT), _p("Situação", ROT), _p("Evidência no edital", ROT)]]
     estilos = [
@@ -157,12 +192,19 @@ def gerar_pdf_espelho(edital: Edital, destino: str | Path,
         title=f"Espelho de critérios - {edital.numero_pregao or ''}",
         author="HBI - HospMedic",
     )
-    h: list = [
+    h: list = []
+    logo = _logo()
+    if logo is not None:
+        h.append(logo)
+        h.append(Spacer(1, 4))
+    h += [
         _p("Espelho de Critérios", TITULO),
         _p(nome_exibido or Path(edital.origem).name, SUB),
         Spacer(1, 8),
         _p("Informações gerais", H2),
         _tabela_info(edital),
+        _p("Condições comerciais", H2),
+        _tabela_condicoes((edital.info or {}).get("condicoes") or {}),
     ]
 
     divergencias = (edital.info or {}).get("divergencias") or []

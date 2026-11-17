@@ -10,7 +10,8 @@ from pathlib import Path
 from hbi.models.edital import Edital
 from hbi.utils.text import float_para_brl
 
-_SIMBOLO = {"go": "[GO]", "no_go": "[NO-GO]", "revisar": "[REVISAR]", "atencao": "!", }
+_SIMBOLO = {"go": "[GO]", "no_go": "[NO-GO]", "revisar": "[REVISAR]",
+            "ilegivel": "[ILEGÍVEL]", "atencao": "!", }
 
 
 
@@ -107,6 +108,14 @@ def montar_relatorio(edital: Edital) -> str:
                 f" ≠ {float_para_brl(i.valor_total)}")
     else:
         add("Todos os itens passaram na conferência automática (qtd × valor = total).")
+
+    # Unidades vazias ou fora da whitelist: conferir no edital.
+    from hbi.modules import unidades
+    sem_unidade = unidades.suspeitas(edital.itens)
+    if sem_unidade:
+        mostra = ", ".join(str(n) for n in sem_unidade[:20])
+        mais = f" (+{len(sem_unidade) - 20})" if len(sem_unidade) > 20 else ""
+        add(f"Unidades a conferir (vazias ou fora da lista): {len(sem_unidade)} itens — {mostra}{mais}")
 
     add("=" * 68)
     return "\n".join(linhas)

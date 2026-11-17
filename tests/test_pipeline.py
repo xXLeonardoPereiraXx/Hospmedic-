@@ -541,6 +541,205 @@ def test_tabela_com_preco_v20():
     print("ok  test_tabela_com_preco_v20")
 
 
+
+def test_fichas_por_lote_v21():
+    """Uma tabela por lote: lê pela grade, mapeia colunas pelo cabecalho."""
+    import tempfile
+    from pathlib import Path
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Paragraph
+    from reportlab.lib.styles import getSampleStyleSheet
+    from hbi.modules.grid_extractor import extrair_fichas_por_lote, _indices_cabecalho
+
+    cab = ["Lote 1", "Codigo GMS", "Descricao do objeto", "Quantidade", "Valor unitario maximo", "Valor total maximo"]
+    def ficha(n, desc, qtd, unit, total):
+        linhas = [[f"LOTE {n} - LOTE EXCLUSIVO PARA ME/EPP", "", "", "", "", ""],
+                  [f"Lote {n}"] + cab[1:], ["Item 1", "GMS 6510", desc, qtd, unit, total]]
+        tb = Table(linhas)
+        tb.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black), ("SPAN", (0, 0), (-1, 0))]))
+        return tb
+    # tabela "descritiva" logo abaixo: suas linhas NAO podem virar sobra da descricao do item
+    descr = Table([["LOTE", "CODIGO GMS", "DESCRITIVO"], ["2", "6510", "texto tecnico longo"]])
+    descr.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)]))
+    with tempfile.TemporaryDirectory() as d:
+        pdf = Path(d) / "lotes.pdf"
+        estilos = getSampleStyleSheet()
+        SimpleDocTemplate(str(pdf), pagesize=A4).build([
+            Paragraph("TERMO DE REFERENCIA", estilos["Title"]),
+            ficha(1, "GEL CONDUTOR 250 G", "160", "R$6,10", "R$976,00"), Spacer(1, 20),
+            ficha(2, "TUBO DE SILICONE N 204", "6.350", "R$ 10,20", "R$ 64.770,00"), Spacer(1, 10), descr])
+        itens, _ = extrair_fichas_por_lote(pdf)
+    assert [(i.item, i.lote, i.quantidade) for i in itens] == [(1, 1, 160.0), (2, 2, 6350.0)], itens
+    assert abs(sum(i.valor_total for i in itens) - 65746.0) < 0.01
+    assert itens[1].descricao == "TUBO DE SILICONE N 204", itens[1].descricao   # sem sobra do descritivo
+    assert all(abs(i.quantidade * i.valor_estimado - i.valor_total) < 0.01 for i in itens)
+    m = _indices_cabecalho(["Lote 1", "Codigo", "Descricao do objeto", "Quantidad e", "Valor unitario", "Valor total"])
+    assert (m["desc"], m["qtd"], m["unit"], m["total"]) == (2, 3, 4, 5), m
+    print("ok  test_fichas_por_lote_v21")
+
+
+def test_pdf_ilegivel_v21():
+    """Texto sem letras reconheciveis vira veredito 'ilegivel', nao GO."""
+    from hbi.modules import edital_validator as ev
+
+    # simula um PDF cuja fonte nao tem mapeamento Unicode: a extracao real
+    # devolve glifos sem letra reconhecivel (aqui, digitos e pontuacao, que
+    # e o que _legibilidade mede: isalpha() de cada caractere)
+    texto_ilegivel = " ".join(f"(#{n}:{n * 7 % 97})" for n in range(500))
+    v = ev.validar(texto_ilegivel)
+    assert v.veredito == "ilegivel", v.veredito
+    assert v.criterios == []
+    assert v.legibilidade < 0.01, v.legibilidade
+    assert "lido" in v.justificativa.lower()
+
+    # um edital normal, com texto de verdade, nunca cai nesse veredito
+    texto_normal = ("PREFEITURA MUNICIPAL DE TESTE PREGAO ELETRONICO 1 ABAIXADOR "
+                    "DE LINGUA PACOTE COM 100 UNIDADES R$ 5,00 modo de disputa aberto") * 20
+    v2 = ev.validar(texto_normal)
+    assert v2.veredito != "ilegivel", v2.veredito
+    assert v2.legibilidade > 0.5, v2.legibilidade
+    print("ok  test_pdf_ilegivel_v21")
+
+
+def test_quadro_resumo_caixas_v21():
+    """Quadro-resumo com caixas de marcar (caractere cheio/vazio)."""
+    from hbi.modules import edital_validator as ev
+
+    cheia, vazia = "\u2612", "\u2610"   # [x] marcada, [ ] vazia
+    texto = (f"Edital Exclusivo ME/EPP? \n{cheia} Sim {vazia} Nao \n"
+             f"Reserva de cota ME/EPP? \n{vazia} Sim {cheia} Nao \n")
+    r1, e1 = ev.resposta_exclusiva_me_epp(texto)
+    assert r1 is True, (r1, e1)
+    r2, e2 = ev.resposta_cota_reservada_me_epp(texto)
+    assert r2 is False, (r2, e2)
+
+    # caixa invertida: exclusiva NAO, cota reservada SIM
+    texto2 = (f"Edital Exclusivo ME/EPP? \n{vazia} Sim {cheia} Nao \n"
+              f"Reserva de cota ME/EPP? \n{cheia} Sim {vazia} Nao \n")
+    r3, _ = ev.resposta_exclusiva_me_epp(texto2)
+    r4, _ = ev.resposta_cota_reservada_me_epp(texto2)
+    assert r3 is False and r4 is True, (r3, r4)
+
+    # sem quadro-resumo nenhum: devolve None (varredura por texto assume)
+    r5, e5 = ev.resposta_exclusiva_me_epp("texto qualquer sem quadro nenhum")
+    assert r5 is None and e5 == ""
+    print("ok  test_quadro_resumo_caixas_v21")
+
+
+def test_gate_valor_declarado_v21():
+    """Soma bem abaixo de um valor declarado rebaixa o gate, sem trocar a soma oficial."""
+    from hbi.models.edital import Edital, ItemEdital, ResultadoValidacao
+
+    item = lambda n, t: ItemEdital(item=n, descricao="x" * 20, unidade="UN",
+                                   quantidade=1, valor_estimado=t, valor_total=t, pagina=1)
+
+    # 7 de 9 "lotes": contas corretas, mas 32% do valor faltando (caso real:
+    # Fundo Estadual de Saude do PR, antes da correcao de extracao)
+    parcial = [item(n, 1000.0) for n in range(1, 8)]
+    e = Edital(origem="x", itens=parcial, valor_total_estimado=10000.0,
+               validacao=ResultadoValidacao())
+    d = e.diagnostico_extracao()
+    assert e.soma_itens == 7000.0, e.soma_itens          # numero oficial nao muda
+    assert d["valor_declarado_diverge"] is True
+    assert d["gate"] == "REVISAR", d["gate"]
+    assert "7.000,00" in d["motivo_gate"] and "10.000,00" in d["motivo_gate"]
+
+    # extracao completa: nao dispara, mesmo com outro valor "estimado" no edital
+    # (editais frequentemente tem valores que nao concordam entre si)
+    completo = [item(n, 1000.0) for n in range(1, 10)]
+    e2 = Edital(origem="x", itens=completo, valor_total_estimado=9000.0,
+                validacao=ResultadoValidacao())
+    d2 = e2.diagnostico_extracao()
+    assert d2["valor_declarado_diverge"] is False
+    assert d2["gate"] == "CONFIAVEL", d2["gate"]
+
+    # diferenca pequena (digitacao do proprio edital, caso Pien PE 78/2026):
+    # dentro da tolerancia de 3%, nao dispara
+    e3 = Edital(origem="x", itens=completo, valor_total_estimado=9200.0,
+                validacao=ResultadoValidacao())
+    d3 = e3.diagnostico_extracao()
+    assert d3["valor_declarado_diverge"] is False, d3
+    print("ok  test_gate_valor_declarado_v21")
+
+
+def test_leitura_posicional_v22():
+    """Relatorio sem grade (Londrina): colunas por posicao x, descricao completa."""
+    import tempfile
+    from pathlib import Path
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from hbi.modules import col_extractor as ce
+    from hbi.modules import table_extractor as te
+    from hbi.models.edital import ItemEdital
+
+    assert ce._qtd_para_float("175.00") == 175.0
+    assert ce._qtd_para_float("6.350") == 6350.0
+    assert ce._qtd_para_float("1.200,50") == 1200.5
+
+    with tempfile.TemporaryDirectory() as d:
+        pdf = Path(d) / "relatorio.pdf"
+        c = canvas.Canvas(str(pdf), pagesize=A4)
+        H = A4[1]
+        def w(x, y, s, tam=7):
+            c.setFont("Helvetica", tam); c.drawString(x, H - y, s)
+        w(20, 170, "Lote: 1 - Lote 1 - Lote exclusivo para ME/EPP")
+        # colunas afastadas o bastante para as palavras do cabecalho nao se
+        # colarem (em 7 pt "Subgrupo" + "Cod." viram uma palavra so)
+        for x, s in ((29, "Item"), (58, "Grupo"), (80, "Subgrupo"), (125, "Cod."), (180, "Descri\u00e7\u00e3o"),
+                     (315, "Quantidade"), (365, "Unidade"), (428, "Preco"), (524, "Preco")):
+            w(x, 185, s)
+        # linha do item: codigos a esquerda, descricao, e numeros a direita
+        for x, s in ((29, "1"), (58, "52"), (87, "8"), (117, "21716"), (180, "AFASTADOR DE GESSO HENNING"),
+                     (315, "175.00"), (351, "Unidade"), (470, "455,04"), (550, "79.632,00")):
+            w(x, 200, s)
+        # texto detalhado corre por baixo das colunas numericas (largura toda)
+        w(180, 210, "Abridor de gesso confeccionado em aco inox, com embalagem que deve apresentar dados de identificacao.")
+        w(404, 235, "PRECO MAXIMO DO LOTE:"); w(544, 235, "79.632,00")
+        w(20, 255, "Lote: 2 - Lote 2 - Lote exclusivo para ME/EPP")
+        for x, s in ((29, "1"), (58, "7"), (180, "ALAVANCA RETA"), (315, "10.00"), (351, "Unidade"),
+                     (470, "27,45"), (550, "274,50")):
+            w(x, 270, s)
+        c.save()
+        itens = ce.extrair_por_colunas(pdf)
+    assert [(i.lote, i.quantidade, i.valor_estimado, i.valor_total) for i in itens] == \
+        [(1, 175.0, 455.04, 79632.0), (2, 10.0, 27.45, 274.5)], itens
+    d1 = itens[0].descricao
+    assert d1.startswith("AFASTADOR DE GESSO HENNING Abridor"), d1
+    assert "identificacao" in d1                      # linha larga NAO e cortada
+    assert "21716" not in d1 and "79.632" not in d1   # sem codigos nem subtotal
+    assert "PRECO" not in d1
+
+    # gatilho: so descricoes contaminadas por codigos/subtotal chamam a releitura
+    mk = lambda desc: ItemEdital(item=1, descricao=desc, unidade="UN", quantidade=1,
+                                 valor_estimado=1.0, valor_total=1.0, pagina=1)
+    sujos = [mk("52 8 21716 AFASTADOR DE GESSO") for _ in range(4)] + [mk("LUVA LIMPA") for _ in range(6)]
+    assert te._descricoes_contaminadas(sujos)
+    # subtotal do lote no fim da descricao tambem conta como contaminacao
+    assert te._descricoes_contaminadas([mk("GAZE X PRE\u00c7O M\u00c1XIMO DO LOTE: 79.632,00")] * 4 + [mk("ok")] * 6)
+    assert not te._descricoes_contaminadas([mk("LUVA LIMPA")] * 10)
+    assert te._mesmos_numeros(sujos, sujos) and not te._mesmos_numeros(sujos, sujos[:-1])
+    print("ok  test_leitura_posicional_v22")
+
+
+def test_texto_com_milhar_nao_e_ruido_v22():
+    """'3.750 K', '20.000 H', '100 PSI' sao descricao; '1.2 DO OBJETO' e numeracao de secao."""
+    from hbi.modules import table_extractor as te
+
+    for s in ("3.750 K (KELVIN) - BRANCO QUENTE. VIDA UTIL:", "20.000 H (HORAS-MINIMA). ACOMPANHA 05",
+              "1.100 UNIDADES POR CAIXA", "330.000 rpm. Compativel com conexoes"):
+        assert not te._NOISE.search(s), s
+    for s in ("1.2 DO OBJETO", "10.5.1 Regras de participacao", "2.5 mm de largura"):
+        assert te._NOISE.search(s), s
+    # numero seguido de unidade de medida e descricao; codigo de produto sai
+    assert te._parse_miolo("100 PSI, COMPONENTE ADICIONAL: C/ EXTENSOR , UN")[0].startswith("100 PSI")
+    assert te._parse_miolo("500 ML DE SOLUCAO SALINA FR")[0].startswith("500 ML")
+    assert te._parse_miolo("2503 AGUA OXIGENADA 10V 1000ML FR")[0].startswith("AGUA")
+    assert te._parse_miolo("62878 12345 AGULHA DESCARTAVEL CX")[0] == "AGULHA DESCARTAVEL"
+    print("ok  test_texto_com_milhar_nao_e_ruido_v22")
+
+
+
 if __name__ == "__main__":
     test_conversao_brl()
     test_confere_total()
@@ -564,4 +763,10 @@ if __name__ == "__main__":
     test_espelho_criterios_v18()
     test_espelho_pdf_e_zip_v18()
     test_tabela_com_preco_v20()
+    test_fichas_por_lote_v21()
+    test_pdf_ilegivel_v21()
+    test_quadro_resumo_caixas_v21()
+    test_gate_valor_declarado_v21()
+    test_leitura_posicional_v22()
+    test_texto_com_milhar_nao_e_ruido_v22()
     print("\nTodos os testes de fumaça passaram.")

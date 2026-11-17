@@ -23,6 +23,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from hbi.modules import condicoes_comerciais
 from hbi.utils.text import normalizar_espacos
 
 # --- portais de disputa ------------------------------------------------------
@@ -238,6 +239,7 @@ def extrair_informacoes(texto: str, nome_arquivo: str | None = None,
             "uf": _uf(texto) or arq.get("uf"),
         },
         "nome_arquivo": arq,
+        "condicoes": condicoes_comerciais.extrair(texto),
         "divergencias": [],
     }
     # O nome do arquivo completa e confere o que veio do texto.

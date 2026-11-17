@@ -91,6 +91,46 @@ def resposta_exclusiva_me_epp(texto: str) -> tuple[bool | None, str]:
     if b:
         return b.group(1).lower().startswith("s"), _evidencia(texto, b)
 
+    # Formato C — caixas de marcar (☒ = marcada, ☐ = desmarcada):
+    #   "Edital Exclusivo ME/EPP? \n☒ Sim ☐ Não"
+    # A caixa marcada decide a resposta; qual das duas vem primeiro no texto
+    # não importa, então as posições de "☒" são comparadas às de "Sim"/"Não".
+    c = re.search(
+        r"exclusiv[oa]\s+me\s*/?\s*epp\s*\?\s*\n?\s*"
+        r"([☒☐])\s*sim\s+([☒☐])\s*n[ãa]o",
+        texto, re.IGNORECASE,
+    )
+    if c:
+        return c.group(1) == "☒", _evidencia(texto, c)
+
+    return None, ""
+
+
+def resposta_cota_reservada_me_epp(texto: str) -> tuple[bool | None, str]:
+    """Lê a resposta do quadro-resumo sobre reserva de cota ME/EPP.
+
+    Mesmo raciocínio de :func:`resposta_exclusiva_me_epp`: quando o edital
+    traz um campo de resumo dedicado, ele é a fonte autoritativa — e é comum
+    o mesmo quadro trazer "Exclusivo ME/EPP?" e "Reserva de cota ME/EPP?"
+    lado a lado, cada um com sua própria caixa marcada.
+    """
+    a = re.search(
+        r"reserva\s+de\s+cota\s+me\s*/?\s*epp[^\n:]{0,15}"
+        r"(?::\s*\n?\s*(sim|n[ãa]o)\b|\s+(sim|n[ãa]o)(?=\s{2,}|\s*\n|\s*$))",
+        texto, re.IGNORECASE,
+    )
+    if a:
+        valor = a.group(1) or a.group(2)
+        return valor.lower().startswith("s"), _evidencia(texto, a)
+
+    c = re.search(
+        r"reserva\s+de\s+cota\s+me\s*/?\s*epp\s*\?\s*\n?\s*"
+        r"([☒☐])\s*sim\s+([☒☐])\s*n[ãa]o",
+        texto, re.IGNORECASE,
+    )
+    if c:
+        return c.group(1) == "☒", _evidencia(texto, c)
+
     return None, ""
 
 
@@ -110,6 +150,25 @@ def _primeira_variante(texto: str, variantes: list[str]) -> re.Match | None:
     return None
 
 
+_LIMIAR_LEGIBILIDADE = 0.15
+
+
+def _legibilidade(texto: str) -> float:
+    """Fração de caracteres alfabéticos no texto (ignorando espaços).
+
+    PDFs com fonte sem mapeamento Unicode (comum em arquivos passados por
+    certas ferramentas de conversão) produzem extração sem nenhuma letra
+    reconhecível. Mesmo editais com muita tabela numérica passam de 50%;
+    abaixo de 15% é sinal de que o PDF não tem texto legível, não de que o
+    conteúdo é "só números".
+    """
+    amostra = texto[:30000]  # a legibilidade não varia por seção do documento
+    sem_espaco = re.sub(r"\s", "", amostra)
+    if not sem_espaco:
+        return 0.0
+    return sum(c.isalpha() for c in sem_espaco) / len(sem_espaco)
+
+
 def validar(texto_edital: str) -> ResultadoValidacao:
     """Avalia os critérios de participação e devolve o veredito.
 
@@ -119,9 +178,32 @@ def validar(texto_edital: str) -> ResultadoValidacao:
     Returns:
         :class:`ResultadoValidacao` com todos os critérios e o veredito.
     """
+    legibilidade = _legibilidade(texto_edital)
+    if legibilidade < _LIMIAR_LEGIBILIDADE:
+        # Sem texto legível não há o que avaliar: um veredito GO aqui seria
+        # "nenhuma exigência encontrada" por não ter lido nada, não porque o
+        # edital é favorável. Devolve-se um veredito próprio, sem rodar a
+        # varredura de critérios (que só daria falsos "não encontrado").
+        return ResultadoValidacao(
+            criterios=[],
+            veredito="ilegivel",
+            justificativa=(
+                "O texto deste PDF não pôde ser lido (apenas "
+                f"{legibilidade:.0%} de caracteres reconhecíveis — a fonte do "
+                "arquivo provavelmente não tem mapeamento para texto). "
+                "Nenhum critério foi avaliado; este edital precisa ser lido "
+                "por outro meio (nova exportação do PDF ou OCR) antes de "
+                "qualquer decisão de participação."
+            ),
+            legibilidade=legibilidade,
+        )
+
+
     # O quadro-resumo (quando existe) é a fonte autoritativa para a
-    # exclusividade ME/EPP; tem prioridade sobre a varredura por texto.
+    # exclusividade ME/EPP e para a cota reservada; tem prioridade sobre a
+    # varredura por texto.
     resumo_exclusiva, ev_exclusiva = resposta_exclusiva_me_epp(texto_edital)
+    resumo_cota, ev_cota = resposta_cota_reservada_me_epp(texto_edital)
 
     criterios: list[CriterioValidacao] = []
     for _id, nome, categoria, variantes, impacto in criterios_espelho.CRITERIOS:
@@ -132,6 +214,17 @@ def validar(texto_edital: str) -> ResultadoValidacao:
                     presente=resumo_exclusiva,
                     impacto=impacto,
                     evidencia=ev_exclusiva,
+                    categoria=categoria,
+                )
+            )
+            continue
+        if _id == "cota_reservada" and resumo_cota is not None:
+            criterios.append(
+                CriterioValidacao(
+                    nome=nome,
+                    presente=resumo_cota,
+                    impacto=impacto,
+                    evidencia=ev_cota,
                     categoria=categoria,
                 )
             )
@@ -173,7 +266,8 @@ def validar(texto_edital: str) -> ResultadoValidacao:
         justificativa = "Nenhuma exigência crítica detectada no texto analisado."
 
     resultado = ResultadoValidacao(
-        criterios=criterios, veredito=veredito, justificativa=justificativa
+        criterios=criterios, veredito=veredito, justificativa=justificativa,
+        legibilidade=legibilidade,
     )
     log.info("Validação: veredito=%s (%d critérios)", veredito, len(criterios))
     return resultado

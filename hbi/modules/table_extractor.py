@@ -203,7 +203,7 @@ _NOISE = re.compile(
     # Palavras que também aparecem DENTRO de descrições ("...conforme anexo",
     # "a critério da contratante") só valem como ruído no início da linha;
     # soltas, elas apagariam texto legítimo do produto.
-    r"(^\s*MUNIC[ÍI]PIO|Estado do Paran|^\s*ANEXO\b|^Item\b|^Und\b|^Fornecedor(?:es)?\b|^\d+\.\d"
+    r"(^\s*MUNIC[ÍI]PIO|Estado do Paran|^\s*ANEXO\b|^Item\b|^Und\b|^Fornecedor(?:es)?\b|^\d+\.\d{1,2}(?!\d)"
     r"|CNPJ|e-mail|Telefone|^Rua |^\s*HAVENDO\b|OBJETO CONSTANTE|^\s*EDITAL\."
     r"|^\s*CONDI[ÇC][ÕO]ES GERAIS D[OA]S?\s+(?:PREG|EDITAL|CONTRAT|LICITA)|Registro de Pre|PREFEIT|ADVOGADO|^\s*CONTRATANTE\b"
     r"|^Valor Uni|^Valor Total|^M[ÉE]DIA(?:\s+ARITM[ÉE]TICA)?\s*(?:\(?R\$\)?)?\s*$|^PRODUTO(?:\s*/\s*SERVI[ÇC]O)?\s*$"
@@ -416,7 +416,14 @@ def _parse_miolo(miolo: str) -> tuple[str, str]:
     else:
         desc, unidade = m, ""
     # remove grupos de códigos numéricos iniciais (CATMAT etc.)
-    desc = re.sub(r"^(?:\d{3,}\s+){0,3}", "", desc).strip()
+    # Códigos numéricos iniciais (CATMAT, código interno): 3 ou mais dígitos
+    # seguidos de texto. Exceção: o número seguido de UNIDADE DE MEDIDA é parte
+    # da descrição ("...ATÉ CERCA DE" / "100 PSI, COMPONENTE...") e não pode
+    # ser descartado. Tentou-se exigir 5+ dígitos, mas há códigos internos de
+    # 4 dígitos ("2503 ÁGUA OXIGENADA", Curiúva) que precisam sair.
+    desc = re.sub(
+        r"^(?:\d{3,}\s+(?!(?:PSI|MM|CM|ML|MG|KG|G|L|M|V|W|HZ|MA|MCD|K|H|BAR|MMHG)\b)){0,3}",
+        "", desc).strip()
     # se o "resto" for basicamente numérico (colunas de qtd), não é descrição
     if desc and len(re.sub(r"[\d\s.,]", "", desc)) < 3:
         desc = ""
@@ -964,6 +971,16 @@ def extrair_itens(
     # A salvaguarda mede só os cortes comuns: os de topo de página são poucos
     # e decididos à parte, e somá-los antes fazia a salvaguarda descartar
     # TODOS os cortes de um edital válido.
+    # A contagem vale só na REGIÃO da tabela de itens (da primeira à última
+    # âncora): um edital tem outras tabelas com borda — quadros do termo de
+    # referência, cronogramas — cujos cortes, somados, faziam um edital de
+    # grade correta (Capitão Leônidas: 452 cortes no documento para 162 itens)
+    # parecer "grade por linha de texto" e ter as bordas descartadas.
+    if inicios_espaco and anchors:
+        ini_reg = max(0, anchors[0][0] - 30)
+        fim_reg = anchors[-1][0] + 30
+        inicios_espaco = {i for i in inicios_espaco if ini_reg <= i <= fim_reg}
+        topos_marcados = {i for i in topos_marcados if ini_reg <= i <= fim_reg}
     if inicios_espaco and len(inicios_espaco) <= len(anchors) * 1.5:
         if topos_marcados:
             inicios_espaco = inicios_espaco | _decidir_topos_de_pagina(
@@ -1317,6 +1334,44 @@ def _fecham(itens) -> int:
                 if i.valor_total > 0 and abs(i.quantidade * i.valor_estimado - i.valor_total) <= 0.5})
 
 
+_VALOR_DECLARADO = re.compile(
+    r"(?i)valor\s+(?:total|global|m[áa]ximo|estimado)\b.{0,90}?R\$\s*"
+    r"(\d{1,3}(?:\.\d{3})*,\d{2})"
+)
+
+
+def _valores_declarados(caminho) -> set[float]:
+    """Valores que o próprio edital declara como total da licitação.
+
+    Lê o documento inteiro com o leitor rápido (pypdf) — mais barato que a
+    leitura posicional, e aqui só o texto importa. Usado como rede de
+    segurança: se a soma dos itens lidos ficar muito abaixo de um valor que
+    o próprio edital declara, é sinal de item perdido mesmo quando a conta
+    dos itens lidos fecha (o gate de consistência interna não vê o que não
+    foi lido).
+    """
+    from pypdf import PdfReader as _Rapido
+
+    texto = "\n".join(pg.extract_text() or "" for pg in _Rapido(str(caminho)).pages)
+    texto = texto.replace("\n", " ")
+    return {_to_float(m.group(1)) for m in _VALOR_DECLARADO.finditer(texto)}
+
+
+def _falta_valor(soma: float, declarados: set[float]) -> bool:
+    """A soma está bem abaixo de um valor declarado, sem bater com nenhum.
+
+    Só dispara a busca por itens perdidos quando a diferença é grande o
+    bastante para não ser arredondamento ou um item isolado com erro de
+    digitação (como visto no Pien, PE 78/2026): o limite de 3% evita
+    alarme falso nesses casos.
+    """
+    if not soma or not declarados:
+        return False
+    if any(abs(soma - d) <= max(d * 0.03, 1.0) for d in declarados):
+        return False  # já bate com algum valor declarado
+    return any(soma < d * 0.97 <= d for d in declarados)
+
+
 _COLUNA_DE_VALOR = re.compile(r"VALOR|PRE[ÇC]O|M[ÉE]DIA|UNIT|TOTAL", re.I)
 
 
@@ -1381,7 +1436,55 @@ def _melhor_regiao(reader, atual):
     return melhor
 
 
-def melhor_extracao(reader, caminho=None):
+_TITULO_LOTE_LINHA = re.compile(r"^\s*LOTE\s+(\d+)\s*[–—-]", re.M)
+
+
+def _lotes_em_titulo(reader) -> dict[int, int]:
+    """Lotes que aparecem como TÍTULO de tabela ("LOTE 7 – ..."), com a página.
+
+    Leitura rápida (pypdf): basta o texto, sem posição de letras.
+    """
+    from pypdf import PdfReader as _Rapido
+
+    achados: dict[int, int] = {}
+    for n, pg in enumerate(_Rapido(str(reader.caminho)).pages, start=1):
+        cancelamento_checar()
+        for m in _TITULO_LOTE_LINHA.finditer(pg.extract_text() or ""):
+            achados.setdefault(int(m.group(1)), n)
+    return achados
+
+
+def _tentar_fichas_por_lote(reader, caminho, itens):
+    """Corrige a leitura quando o edital tem MAIS LOTES do que itens achados.
+
+    Um lote tem pelo menos um item. Se os títulos de lote do documento são
+    mais numerosos que os itens lidos, a leitura perdeu itens — e como a conta
+    dos itens que sobraram continua fechando, o gate de extração não percebe.
+    Nesse caso as tabelas de lote são lidas pela grade, e o resultado só é
+    adotado se tiver mais itens com a conta fechando que a leitura atual.
+    """
+    try:
+        lotes = _lotes_em_titulo(reader)
+        if len(lotes) < 2 or len(lotes) <= len(itens):
+            return None
+        from hbi.modules.grid_extractor import extrair_fichas_por_lote
+
+        paginas = sorted({p + d for p in lotes.values() for d in (0, 1)})
+        fichas, _ = extrair_fichas_por_lote(caminho, paginas)
+    except AnaliseCancelada:
+        raise
+    except Exception as exc:  # noqa: BLE001 — sem a etapa, segue a leitura padrão
+        log.warning("Leitura por fichas de lote indisponível (%s).", exc)
+        return None
+    if fichas and _fecham(fichas) > _fecham(itens):
+        log.info("Fichas por lote adotadas: %d itens (%d com a conta fechando) contra "
+                 "%d da leitura padrão, que tinha %d lotes a menos.",
+                 len(fichas), _fecham(fichas), len(itens), len(lotes) - len(itens))
+        return fichas
+    return None
+
+
+def _melhor_extracao_base(reader, caminho=None):
     """Extrai os itens escolhendo a estratégia que der o resultado mais íntegro.
 
     A leitura por âncoras resolve a maioria dos editais, mas alguns PDFs
@@ -1407,6 +1510,12 @@ def melhor_extracao(reader, caminho=None):
             por_regiao = None
         if por_regiao is not None:
             itens, cobertura = por_regiao, _completude(por_regiao)
+    # Uma tabela por lote: itens que a leitura padrão deixou para trás.
+    if caminho is not None:
+        por_ficha = _tentar_fichas_por_lote(reader, caminho, itens)
+        if por_ficha is not None:
+            return por_ficha, {}
+
     if cobertura >= 0.995 or caminho is None:
         return itens, {}
 
@@ -1441,3 +1550,174 @@ def melhor_extracao(reader, caminho=None):
         "reconheceu %d.", len(nums_a), cob_a * 100, referencia, len(nums_g),
     )
     return itens, {}
+
+
+
+_CONTAMINADA = re.compile(
+    r"^\d{1,6}\s+\d{1,6}\s+\S|PRE[ÇC]O M[ÁA]XIMO D[OA] (?:LOTE|LICITA)", re.I)
+
+
+def _descricoes_contaminadas(itens) -> bool:
+    """Descrições com colunas de código ou subtotal misturados ao texto.
+
+    Sinais: a descrição abre com dois ou mais números soltos (grupo,
+    subgrupo, código do produto: "52 8 21716 AFASTADOR...") ou termina com o
+    subtotal do lote ("PREÇO MÁXIMO DO LOTE: ..."). Em editais lidos
+    corretamente isso não ocorre em nenhuma descrição; basta 30% de itens
+    afetados para considerar a leitura por âncoras contaminada.
+    """
+    if not itens:
+        return False
+    return sum(1 for i in itens if _CONTAMINADA.search(i.descricao)) >= len(itens) * 0.30
+
+
+def _mesmos_numeros(a, b) -> bool:
+    """Mesma lista de itens, com quantidade, unitário e total iguais, na ordem."""
+    return (len(a) == len(b) and all(
+        abs(x.quantidade - y.quantidade) < 0.5
+        and abs(x.valor_estimado - y.valor_estimado) < 0.005
+        and abs(x.valor_total - y.valor_total) < 0.005
+        for x, y in zip(a, b)))
+
+
+def _refinar_por_colunas(caminho, itens):
+    """Relê as descrições pela posição das colunas quando a leitura por âncoras as contaminou.
+
+    Só entra em ação com descrições contaminadas (ver acima) e só é adotada
+    se reproduzir EXATAMENTE os mesmos números da leitura por âncoras — assim
+    a troca melhora o texto sem poder alterar quantidade nem valor. Quando a
+    leitura por posição acha MAIS itens com a conta fechando, também é
+    adotada (a leitura por âncoras tinha perdido itens).
+    """
+    from hbi.modules.col_extractor import extrair_por_colunas
+
+    pos = extrair_por_colunas(caminho)
+    if not pos or _fecham(pos) < len(pos) * 0.98:
+        return None
+    if _mesmos_numeros(itens, pos):
+        log.info("Descrições relidas por posição de coluna: %d itens, mesmos números "
+                 "da leitura por âncoras.", len(pos))
+        return pos
+    if len(pos) > len(itens) and _fecham(pos) > _fecham(itens):
+        log.info("Leitura por posição de coluna adotada: %d itens contra %d.",
+                 len(pos), len(itens))
+        return pos
+    return None
+
+
+def _linhas_que_fecham(itens) -> int:
+    """Linhas (não números distintos) cuja conta qtd × unitário = total fecha."""
+    return sum(1 for i in itens if i.valor_total > 0
+               and abs(i.quantidade * i.valor_estimado - i.valor_total) <= 0.5)
+
+
+def _completar(cel, itens):
+    """Mesmos números: campo vazio na célula fica com o valor da leitura anterior.
+
+    Acontece quando as células vêm de outra tabela do edital com os mesmos
+    itens (mapa de preços sem coluna de unidade): a troca não pode apagar
+    um dado que a leitura anterior tinha.
+    """
+    from hbi.modules.unidades import eh_unidade, eh_medida
+
+    for c, i in zip(cel, itens):
+        # só uma unidade de verdade: palavra solta da descrição ("com", "aço")
+        # ou medida ("ML" de "CAP 160 ML") que a leitura anterior pôs no campo
+        # não deve ser herdada
+        if (not (c.unidade or "").strip() and eh_unidade(i.unidade or "")
+                and not eh_medida(i.unidade or "")):
+            c.unidade = i.unidade
+        if not (c.descricao or "").strip() and i.descricao:
+            c.descricao = i.descricao
+    return cel
+
+
+def _tentar_celulas(caminho, itens):
+    """Leitura pelas células desenhadas, adotada só quando se prova melhor.
+
+    Exige: conta fechando em 98%+ das linhas, numeração sem saltos e nenhuma
+    faixa de texto sem dono no meio da tabela. Cumprido isso, é adotada se
+    reproduz os mesmos números da leitura atual (troca só o texto, que agora
+    respeita as bordas) ou se acha pelo menos tantos itens com mais contas
+    fechando.
+    """
+    from hbi.modules.cell_extractor import extrair_por_celulas, sequencia_ok
+
+    cel, orfas = extrair_por_celulas(caminho)
+    if len(cel) < 3 or orfas or not sequencia_ok(cel):
+        return None
+    fecham = _linhas_que_fecham(cel)
+    if fecham < len(cel) * 0.98:
+        return None
+    # Documento que repete a tabela (TR, cota principal, cota reservada): a
+    # leitura atual escolheu UMA delas. Se as células têm um trecho com
+    # exatamente os mesmos números, ficam as descrições desse trecho.
+    if itens and len(cel) > len(itens):
+        for ini in (k for k, c in enumerate(cel) if c.item == itens[0].item):
+            trecho = cel[ini: ini + len(itens)]
+            if _mesmos_numeros(itens, trecho):
+                for c in trecho:
+                    c.lote = itens[0].lote if len({i.lote for i in itens}) == 1 else c.lote
+                log.info("Descrições relidas pelas células desenhadas: %d itens, mesmos "
+                         "números (trecho de uma tabela repetida no documento).", len(trecho))
+                return _completar(trecho, itens)
+    # Tabela repetida que a busca de trecho acima não casou: mais itens aqui
+    # seriam cópias (valor dobrado), nunca itens novos.
+    chaves = [(c.item, round(c.quantidade, 3), round(c.valor_estimado, 4),
+               round(c.valor_total, 2)) for c in cel]
+    if len(set(chaves)) < len(chaves) * 0.9:
+        log.info("Leitura por células descartada: a tabela de itens aparece repetida "
+                 "(%d linhas, %d distintas).", len(chaves), len(set(chaves)))
+        return None
+    if _mesmos_numeros(itens, cel):
+        log.info("Descrições relidas pelas células desenhadas: %d itens, mesmos números.",
+                 len(cel))
+        return _completar(cel, itens)
+    if len(cel) >= len(itens) and fecham > _linhas_que_fecham(itens):
+        log.info("Leitura por células desenhadas adotada: %d itens (%d fecham) contra "
+                 "%d (%d fecham).", len(cel), fecham, len(itens), _linhas_que_fecham(itens))
+        return cel
+    if len(cel) >= len(itens) and fecham == _linhas_que_fecham(itens) == len(cel):
+        # mesmos itens e contas por outro caminho: as bordas decidem o texto
+        log.info("Leitura por células desenhadas adotada (contas iguais, %d itens).", len(cel))
+        return cel
+    return None
+
+
+def melhor_extracao(reader, caminho=None):
+    """Extrai os itens escolhendo a estratégia que der o resultado mais íntegro.
+
+    No fim, o campo de unidade passa pela whitelist (``unidades.corrigir``).
+    """
+    from hbi.modules import unidades
+
+    itens, extras = _melhor_extracao_itens(reader, caminho)
+    n = unidades.corrigir(itens)
+    if n:
+        log.info("Unidades corrigidas pela whitelist: %d itens.", n)
+    return itens, extras
+
+
+def _melhor_extracao_itens(reader, caminho=None):
+    itens, extras = _melhor_extracao_base(reader, caminho)
+    if caminho is not None:
+        try:
+            por_celula = _tentar_celulas(caminho, itens)
+        except AnaliseCancelada:
+            raise
+        except Exception as exc:  # noqa: BLE001 — sem a etapa, segue a leitura atual
+            log.warning("Leitura por células indisponível (%s).", exc)
+            por_celula = None
+        if por_celula is not None:
+            return por_celula, {}
+    if caminho is not None and _descricoes_contaminadas(itens):
+        try:
+            refinados = _refinar_por_colunas(caminho, itens)
+        except AnaliseCancelada:
+            raise
+        except Exception as exc:  # noqa: BLE001 — sem a etapa, segue a leitura por âncoras
+            log.warning("Leitura por posição de coluna indisponível (%s).", exc)
+            refinados = None
+        if refinados is not None:
+            return refinados, {}
+    return itens, extras
